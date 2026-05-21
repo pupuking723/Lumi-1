@@ -2,7 +2,7 @@
 #
 # Usage (web dashboard built-in by default):
 #   make up
-#   # or: docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d --build
+#   # or: docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/docker-compose.postgres.yml up -d --build
 #
 # Required env vars (set in .env or shell):
 #   GOCLAW_OPENROUTER_API_KEY (or another provider key)

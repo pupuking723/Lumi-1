@@ -27,7 +27,7 @@ GoClaw 是一个 Go 实现的多租户 AI Agent Gateway。它把 LLM Provider、
 | LLM 接入 | Anthropic、OpenAI-compatible、DashScope、Codex、Claude CLI、ACP、OpenRouter/Gemini/DeepSeek 等兼容端点 |
 | 工具/扩展 | MCP bridge、Skills runtime、Docker sandbox、Browser automation、TTS/STT、Knowledge Vault |
 | 可观测性 | 内置 LLM tracing，按构建标签可启用 OpenTelemetry OTLP |
-| 部署 | 单 Go binary、Dockerfile、Docker Compose，可选 Redis、Browser、Sandbox、Tailscale、Jaeger |
+| 部署 | 单 Go binary、`deploy/docker/Dockerfile`、`deploy/compose/`，可选 Redis、Browser、Sandbox、Tailscale、Jaeger |
 
 ## 3. 仓库结构
 
@@ -301,20 +301,20 @@ make build-tui   # 带 TUI build tag
 
 默认 `make up` 组合：
 
-- `docker-compose.yml`
-- `docker-compose.postgres.yml`
+- `deploy/compose/docker-compose.yml`
+- `deploy/compose/docker-compose.postgres.yml`
 - 启动 `goclaw` 服务和 PostgreSQL，并运行 upgrade/migration。
 
 可选组合：
 
 | Flag | Compose 文件 | 作用 |
 | --- | --- | --- |
-| `WITH_BROWSER=1` | `docker-compose.browser.yml` | Headless Chrome browser tool |
-| `WITH_OTEL=1` | `docker-compose.otel.yml` | Jaeger/OTel tracing |
-| `WITH_SANDBOX=1` | `docker-compose.sandbox.yml` | Docker sandbox |
-| `WITH_TAILSCALE=1` | `docker-compose.tailscale.yml` | Tailscale 私网暴露 |
-| `WITH_REDIS=1` | `docker-compose.redis.yml` | Redis cache |
-| `WITH_CLAUDE_CLI=1` | `docker-compose.claude-cli.yml` | Claude CLI 集成 |
+| `WITH_BROWSER=1` | `deploy/compose/docker-compose.browser.yml` | Headless Chrome browser tool |
+| `WITH_OTEL=1` | `deploy/compose/docker-compose.otel.yml` | Jaeger/OTel tracing |
+| `WITH_SANDBOX=1` | `deploy/compose/docker-compose.sandbox.yml` | Docker sandbox |
+| `WITH_TAILSCALE=1` | `deploy/compose/docker-compose.tailscale.yml` | Tailscale 私网暴露 |
+| `WITH_REDIS=1` | `deploy/compose/docker-compose.redis.yml` | Redis cache |
+| `WITH_CLAUDE_CLI=1` | `deploy/compose/docker-compose.claude-cli.yml` | Claude CLI 集成 |
 
 ### 13.3 Desktop Lite
 
@@ -369,4 +369,3 @@ make test-hooks        # hooks unit/e2e/chaos/rbac/tracing
 - Tools：`docs/03-tools-system.md`
 - Security：`docs/09-security.md`
 - Vault：`docs/24-knowledge-vault.md`
-

@@ -1,11 +1,11 @@
 # Sandbox overlay — enables Docker-based sandbox for agent code execution.
 #
 # Prerequisites:
-#   1. Build the sandbox image:  docker build -t goclaw-sandbox:bookworm-slim -f Dockerfile.sandbox .
+#   1. Build the sandbox image:  docker build -t goclaw-sandbox:bookworm-slim -f deploy/docker/Dockerfile.sandbox .
 #   2. Ensure Docker socket is accessible (required for container orchestration)
 #
 # Usage:
-#   docker compose -f docker-compose.yml -f docker-compose.sandbox.yml up
+#   docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/docker-compose.sandbox.yml up
 #
 # SECURITY WARNING: This overlay mounts the Docker socket, giving the container
 # control over host Docker. Deploy only behind a trusted network boundary.

@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Generates COMPOSE_FILE from compose.d/*.yml
+# Generates COMPOSE_FILE from deploy/compose/modules/*.yml
 set -euo pipefail
 
 SCRIPT="${BASH_SOURCE[0]}"
 SCRIPT_DIR="$(cd "$(dirname "${SCRIPT}")" && pwd)"
-ENV_FILE="${GOCLAW_ENV_FILE:-$SCRIPT_DIR/.env}"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+COMPOSE_MODULE_DIR="${GOCLAW_COMPOSE_MODULE_DIR:-deploy/compose/modules}"
+ENV_FILE="${GOCLAW_ENV_FILE:-$ROOT_DIR/.env}"
 
 loud() {
   [[ "${QUIET:-false}" != true ]] && echo "$@"
@@ -18,7 +20,7 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
   echo "  --quiet           Suppress normal output"
   echo "  --skip-validation Skip docker compose config validation"
   echo ""
-  echo "  Generates COMPOSE_FILE from compose.d/*.yml files (sorted)"
+  echo "  Generates COMPOSE_FILE from ${COMPOSE_MODULE_DIR}/*.yml files (sorted)"
   echo "  Updates .env with the resulting COMPOSE_FILE value"
   echo ""
   echo "Note: docker-compose reads .env automatically"
@@ -35,16 +37,18 @@ for arg in "$@"; do
   esac
 done
 
-cd "$SCRIPT_DIR" >/dev/null 2>&1
+cd "$ROOT_DIR" >/dev/null 2>&1
 
-[[ ! -f "docker-compose.yml" ]] && echo "docker-compose.yml not found" && exit 1
+[[ ! -f "deploy/compose/docker-compose.yml" ]] && echo "deploy/compose/docker-compose.yml not found" && exit 1
 
-# Build COMPOSE_FILE from compose.d files (sorted)
+# Build COMPOSE_FILE from compose modules (sorted)
 COMPOSE_FILE=""
-for f in compose.d/*.yml; do
+for f in "$COMPOSE_MODULE_DIR"/*.yml; do
   [[ -e "$f" ]] && COMPOSE_FILE="$COMPOSE_FILE${COMPOSE_FILE:+:}$f"
 done
 export COMPOSE_FILE
+export GOCLAW_DIR="$ROOT_DIR"
+export GOCLAW_ENV_FILE="$ENV_FILE"
 
 # Validate compose files
 if [[ "$SKIP_VALIDATION" != true ]]; then
@@ -66,7 +70,8 @@ update_env() {
 # Update .env with COMPOSE_FILE and GOCLAW_DIR
 if [[ -f "$ENV_FILE" ]]; then
   update_env "COMPOSE_FILE" "$COMPOSE_FILE"
-  update_env "GOCLAW_DIR" "$SCRIPT_DIR"
+  update_env "GOCLAW_DIR" "$ROOT_DIR"
+  update_env "GOCLAW_ENV_FILE" "$ENV_FILE"
   loud "COMPOSE_FILE updated in $ENV_FILE"
   loud "  COMPOSE_FILE=$COMPOSE_FILE"
 else

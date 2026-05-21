@@ -5,12 +5,12 @@
 # Web UI is served at the same port as the API (default: 18790).
 #
 # Quick start:
-#   docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d
+#   docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/docker-compose.postgres.yml up -d
 #   # Dashboard: http://localhost:18790
 #
 # Optional nginx (for custom SSL, reverse proxy, caching):
 #   make up WITH_WEB_NGINX=1
-#   # or: docker compose -f docker-compose.yml -f docker-compose.postgres.yml -f docker-compose.selfservice.yml up -d
+#   # or: docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/docker-compose.postgres.yml -f deploy/compose/docker-compose.selfservice.yml up -d
 #   # Dashboard via nginx: http://localhost:3000
 #
 # Docker image variants:
@@ -19,15 +19,17 @@
 #   latest-full  — All runtimes + skill dependencies pre-installed
 #   latest-otel  — Latest + OpenTelemetry tracing
 #
-# With OTel tracing:  add -f docker-compose.otel.yml
-# With Claude CLI:    add -f docker-compose.claude-cli.yml
+# With OTel tracing:  add -f deploy/compose/docker-compose.otel.yml
+# With Claude CLI:    add -f deploy/compose/docker-compose.claude-cli.yml
+
+name: goclaw
 
 services:
   goclaw:
     image: ghcr.io/nextlevelbuilder/goclaw:latest
     build:
-      context: ${GOCLAW_DIR:-.}
-      dockerfile: Dockerfile
+      context: ${GOCLAW_DIR:-../..}
+      dockerfile: deploy/docker/Dockerfile
       args:
         ENABLE_OTEL: "${ENABLE_OTEL:-false}"
         ENABLE_EMBEDUI: "${ENABLE_EMBEDUI:-true}"  # set to false when using WITH_WEB_NGINX
@@ -38,7 +40,7 @@ services:
     ports:
       - "${GOCLAW_PORT:-18790}:18790"
     env_file:
-      - path: .env
+      - path: ${GOCLAW_ENV_FILE:-../../.env}
         required: false
     environment:
       - GOCLAW_HOST=0.0.0.0

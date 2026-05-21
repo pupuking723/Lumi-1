@@ -2,11 +2,15 @@
 # prepare-env.sh — Create or update .env with auto-generated secrets.
 # Safe to run multiple times: only fills in missing values, never overwrites existing ones.
 #
-# Usage:  ./prepare-env.sh
+# Usage:  ./scripts/prepare-env.sh
 
 set -euo pipefail
 
-ENV_FILE=".env"
+SCRIPT="${BASH_SOURCE[0]}"
+SCRIPT_DIR="$(cd "$(dirname "${SCRIPT}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+ENV_FILE="${GOCLAW_ENV_FILE:-$ROOT_DIR/.env}"
+ENV_EXAMPLE="${GOCLAW_ENV_EXAMPLE:-$ROOT_DIR/.env.example}"
 
 # --- helpers ---
 
@@ -49,18 +53,18 @@ echo ""
 
 # 1. Create .env from .env.example if it doesn't exist
 if [ ! -f "$ENV_FILE" ]; then
-  if [ -f ".env.example" ]; then
+  if [ -f "$ENV_EXAMPLE" ]; then
     # Strip 'export ' prefix for Docker Compose compatibility
-    sed 's/^export //' .env.example > "$ENV_FILE"
+    sed 's/^export //' "$ENV_EXAMPLE" > "$ENV_FILE"
     chmod 600 "$ENV_FILE"
-    echo "  [created]   .env from .env.example"
+    echo "  [created]   $ENV_FILE from $ENV_EXAMPLE"
   else
     touch "$ENV_FILE"
     chmod 600 "$ENV_FILE"
-    echo "  [created]   .env (empty)"
+    echo "  [created]   $ENV_FILE (empty)"
   fi
 else
-  echo "  [exists]    .env"
+  echo "  [exists]    $ENV_FILE"
 fi
 
 # 2. Auto-generate GOCLAW_ENCRYPTION_KEY if missing

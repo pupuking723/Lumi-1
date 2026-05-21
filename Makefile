@@ -31,32 +31,33 @@ version:
 # ── Docker Compose ──
 # Default: backend (with embedded web UI) + Postgres. No separate nginx needed.
 # Add WITH_WEB_NGINX=1 for separate nginx on :3000 (custom SSL, reverse proxy).
-COMPOSE_BASE = docker compose -f docker-compose.yml -f docker-compose.postgres.yml
+COMPOSE_DIR = deploy/compose
+COMPOSE_BASE = docker compose -f $(COMPOSE_DIR)/docker-compose.yml -f $(COMPOSE_DIR)/docker-compose.postgres.yml
 ifdef WITH_WEB_NGINX
-COMPOSE_BASE += -f docker-compose.selfservice.yml
+COMPOSE_BASE += -f $(COMPOSE_DIR)/docker-compose.selfservice.yml
 export ENABLE_EMBEDUI=false
 endif
 COMPOSE_EXTRA =
 ifdef WITH_BROWSER
-COMPOSE_EXTRA += -f docker-compose.browser.yml
+COMPOSE_EXTRA += -f $(COMPOSE_DIR)/docker-compose.browser.yml
 endif
 ifdef WITH_OTEL
-COMPOSE_EXTRA += -f docker-compose.otel.yml
+COMPOSE_EXTRA += -f $(COMPOSE_DIR)/docker-compose.otel.yml
 endif
 ifdef WITH_SANDBOX
-COMPOSE_EXTRA += -f docker-compose.sandbox.yml
+COMPOSE_EXTRA += -f $(COMPOSE_DIR)/docker-compose.sandbox.yml
 endif
 ifdef WITH_TAILSCALE
-COMPOSE_EXTRA += -f docker-compose.tailscale.yml
+COMPOSE_EXTRA += -f $(COMPOSE_DIR)/docker-compose.tailscale.yml
 endif
 ifdef WITH_REDIS
-COMPOSE_EXTRA += -f docker-compose.redis.yml
+COMPOSE_EXTRA += -f $(COMPOSE_DIR)/docker-compose.redis.yml
 endif
 ifdef WITH_CLAUDE_CLI
-COMPOSE_EXTRA += -f docker-compose.claude-cli.yml
+COMPOSE_EXTRA += -f $(COMPOSE_DIR)/docker-compose.claude-cli.yml
 endif
 COMPOSE = $(COMPOSE_BASE) $(COMPOSE_EXTRA)
-UPGRADE = docker compose -f docker-compose.yml -f docker-compose.postgres.yml -f docker-compose.upgrade.yml
+UPGRADE = docker compose -f $(COMPOSE_DIR)/docker-compose.yml -f $(COMPOSE_DIR)/docker-compose.postgres.yml -f $(COMPOSE_DIR)/docker-compose.upgrade.yml
 
 version-file:
 	@echo $(VERSION) > VERSION

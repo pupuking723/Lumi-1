@@ -78,7 +78,7 @@ ARG ENABLE_CLAUDE_CLI=false
 # Copy pinned Python deps (cleaned up after install).
 # requirements-base.txt: shared deps for ENABLE_PYTHON and ENABLE_FULL_SKILLS.
 # requirements-skills.txt: additional deps only for ENABLE_FULL_SKILLS.
-COPY docker/requirements-base.txt docker/requirements-skills.txt /tmp/
+COPY deploy/docker/requirements-base.txt deploy/docker/requirements-skills.txt /tmp/
 
 # Install ca-certificates + wget (healthcheck) + optional runtimes.
 # ENABLE_FULL_SKILLS=true pre-installs all skill deps (larger image, no on-demand install needed).
@@ -119,7 +119,7 @@ COPY --from=builder /out/goclaw /app/goclaw
 COPY --from=builder /out/pkg-helper /app/pkg-helper
 COPY --from=builder /src/migrations/ /app/migrations/
 COPY --from=builder /src/skills/ /app/bundled-skills/
-COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+COPY deploy/docker/docker-entrypoint.sh /app/docker-entrypoint.sh
 
 # Fix Windows git clone issues:
 # 1. CRLF line endings in shell scripts (Windows git adds \r)

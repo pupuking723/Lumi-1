@@ -147,7 +147,7 @@ The workspace is injected into tools via `WithToolWorkspace(ctx)` context inject
 | Main app | goclaw (1000) | All operations except system packages | N/A |
 | pkg-helper | root | System package (apk) install/uninstall only | `/tmp/pkg.sock` (0660 root:goclaw) |
 
-The pkg-helper is started in `docker-entrypoint.sh` *before* privileges are dropped to goclaw. The main app connects to the Unix socket to request apk operations. System packages are persisted to `/app/data/.runtime/apk-packages` so they survive container recreation. Python and npm packages are installed directly by the goclaw user to writable runtime directories (`$PIP_TARGET`, `$NPM_CONFIG_PREFIX`).
+The pkg-helper is started in `deploy/docker/docker-entrypoint.sh` *before* privileges are dropped to goclaw. The main app connects to the Unix socket to request apk operations. System packages are persisted to `/app/data/.runtime/apk-packages` so they survive container recreation. Python and npm packages are installed directly by the goclaw user to writable runtime directories (`$PIP_TARGET`, `$NPM_CONFIG_PREFIX`).
 
 **Docker sandbox** -- Container-based isolation for shell command execution:
 
@@ -170,7 +170,7 @@ The pkg-helper is started in `docker-entrypoint.sh` *before* privileges are drop
 
 GoClaw runs in a non-root container with three privilege levels:
 
-**Phase 1: Root (docker-entrypoint.sh)**
+**Phase 1: Root (`deploy/docker/docker-entrypoint.sh`)**
 - Re-install persisted system packages from `/app/data/.runtime/apk-packages`
 - Start `pkg-helper` (root-privileged service listening on `/tmp/pkg.sock`)
 - Set up Python and Node.js runtime directories with proper env vars
@@ -463,7 +463,7 @@ When concurrency limits are hit, the error message is written for LLM reasoning:
 | Input & output protection | `internal/agent/input_guard.go`, `internal/tools/scrub.go`, `internal/tools/shell.go`, `internal/tools/web_fetch.go` | Injection detection, credential scrubbing, shell deny patterns, SSRF protection |
 | Crypto, RBAC & rate limiting | `internal/crypto/`, `internal/permissions/policy.go`, `internal/gateway/ratelimit.go` | AES-256-GCM, API key generation, 3-role RBAC, token bucket |
 | Sandbox & filesystem isolation | `internal/sandbox/`, `internal/tools/filesystem*.go`, `internal/tools/types.go` | Docker sandbox lifecycle, FsBridge, PathDenyable interface |
-| Pairing, packages & container init | `internal/gateway/methods/pairing.go`, `internal/store/pg/pairing.go`, `cmd/pkg-helper/`, `docker-entrypoint.sh` | Browser pairing, pkg-helper Unix socket, container privilege drop |
+| Pairing, packages & container init | `internal/gateway/methods/pairing.go`, `internal/store/pg/pairing.go`, `cmd/pkg-helper/`, `deploy/docker/docker-entrypoint.sh` | Browser pairing, pkg-helper Unix socket, container privilege drop |
 
 Use `grep` or your editor's symbol search for specific files.
 

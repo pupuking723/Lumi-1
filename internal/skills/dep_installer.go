@@ -103,7 +103,7 @@ func InstallSingleDep(ctx context.Context, dep string) (bool, string) {
 }
 
 // InstallDeps installs missing packages by category.
-// Uses PIP_TARGET and NPM_CONFIG_PREFIX from env (set by docker-entrypoint.sh).
+// Uses PIP_TARGET and NPM_CONFIG_PREFIX from env (set by deploy/docker/docker-entrypoint.sh).
 func InstallDeps(ctx context.Context, manifest *SkillManifest, missing []string) (*InstallResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, InstallTimeout)
 	defer cancel()

@@ -79,9 +79,10 @@ goclaw.db-shm
 ui/desktop/frontend/dist/index.html
 
 # Local compose modules
-compose.d/*
-!compose.d/.gitkeep
-!compose.d/0*
+deploy/compose/modules/*
+!deploy/compose/modules/.gitkeep
+!deploy/compose/modules/README.md
+!deploy/compose/modules/0*
 
 # Local runtime data
 .goclaw-dev/

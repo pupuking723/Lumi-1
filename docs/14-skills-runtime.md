@@ -67,7 +67,7 @@ Pre-installed runtimes depend on the Docker image variant you deploy. The Packag
 
 ## 3. Runtime Package Installation (Option B)
 
-The entrypoint (`docker-entrypoint.sh`) configures writable directories so agents can install additional packages at runtime without `sudo`.
+The entrypoint (`deploy/docker/docker-entrypoint.sh`) configures writable directories so agents can install additional packages at runtime without `sudo`.
 
 ### Environment Variables (set by entrypoint)
 
@@ -164,7 +164,7 @@ Skills shipped with the Docker image at `/app/bundled-skills/`. Lowest priority 
 ### How It Works
 
 1. Skills source files live in `skills/` directory in the repo
-2. Dockerfile copies them to `/app/bundled-skills/` in the image
+2. `deploy/docker/Dockerfile` copies them to `/app/bundled-skills/` in the image
 3. `gateway.go` passes this path as `builtinSkills` to `skills.NewLoader()`
 4. Loader priority: workspace > project-agents > personal-agents > global > **builtin** > managed
 
@@ -181,9 +181,9 @@ When a user uploads a skill with the same name via the UI, the managed version t
 
 To add a new package to the Docker image:
 
-1. **Python**: Add to the `pip3 install` line in `Dockerfile` (usually `full`, sometimes `python`)
-2. **Node.js**: Add to the `npm install -g` line in `Dockerfile` (usually `full`, sometimes `node`)
-3. **System tool**: Add to the `apk add` line in `Dockerfile`
+1. **Python**: Add to the `pip3 install` line in `deploy/docker/Dockerfile` (usually `full`, sometimes `python`)
+2. **Node.js**: Add to the `npm install -g` line in `deploy/docker/Dockerfile` (usually `full`, sometimes `node`)
+3. **System tool**: Add to the `apk add` line in `deploy/docker/Dockerfile`
 4. **Docs/UI guidance**: Update runtime variant docs and any UI copy that describes pre-installed tools
 5. **Rebuild**: `docker compose ... up -d --build`
 

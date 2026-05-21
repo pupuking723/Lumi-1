@@ -146,7 +146,7 @@ if [ "$DEV_MODE" = true ]; then
   cat >> "$COMPOSE_FILE" <<YAML
     build:
       context: $(pwd)
-      dockerfile: Dockerfile
+      dockerfile: deploy/docker/Dockerfile
       args:
         ENABLE_PYTHON: "$([ "$VARIANT" = "python" ] || [ "$VARIANT" = "full" ] && echo true || echo false)"
         ENABLE_NODE: "$([ "$VARIANT" = "node" ] || [ "$VARIANT" = "full" ] && echo true || echo false)"

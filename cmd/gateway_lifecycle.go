@@ -224,7 +224,7 @@ func (d *gatewayDeps) runLifecycle(
 
 	// Security warnings
 	if strings.Contains(d.cfg.Database.PostgresDSN, ":goclaw@") {
-		slog.Warn("security.default_db_password: using default Postgres password — run ./prepare-env.sh to generate a strong one")
+		slog.Warn("security.default_db_password: using default Postgres password — run ./scripts/prepare-env.sh to generate a strong one")
 	}
 	if len(d.cfg.Gateway.AllowedOrigins) > 0 {
 		slog.Info("cors: allowed_origins configured", "origins", d.cfg.Gateway.AllowedOrigins)
