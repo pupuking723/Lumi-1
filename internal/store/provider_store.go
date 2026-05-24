@@ -27,12 +27,13 @@ const (
 	ProviderYesScale        = "yescale"
 	ProviderZai             = "zai"
 	ProviderZaiCoding       = "zai_coding"
-	ProviderOllama          = "ollama"       // local or self-hosted Ollama (no API key)
-	ProviderOllamaCloud     = "ollama_cloud" // Ollama Cloud (Bearer token required)
-	ProviderACP             = "acp"          // ACP (Agent Client Protocol) agent subprocess
+	ProviderOllama          = "ollama"          // local or self-hosted Ollama (no API key)
+	ProviderOllamaCloud     = "ollama_cloud"    // Ollama Cloud (Bearer token required)
+	ProviderACP             = "acp"             // ACP (Agent Client Protocol) agent subprocess
 	ProviderNovita          = "novita"          // Novita AI (OpenAI-compatible endpoint)
 	ProviderBytePlus        = "byteplus"        // BytePlus ModelArk (Seed 2.0 models)
 	ProviderBytePlusCoding  = "byteplus_coding" // BytePlus ModelArk Coding Plan
+	ProviderVertex          = "vertex"          // Google Vertex AI Gemini models
 
 	// Novita AI defaults.
 	NovitaDefaultAPIBase = "https://api.novita.ai/openai"
@@ -70,6 +71,7 @@ var ValidProviderTypes = map[string]bool{
 	ProviderNovita:          true,
 	ProviderBytePlus:        true,
 	ProviderBytePlusCoding:  true,
+	ProviderVertex:          true,
 }
 
 // LLMProviderData represents an LLM provider configuration.
@@ -102,6 +104,13 @@ type EmbeddingSettings struct {
 type ProviderReasoningConfig struct {
 	Effort   string `json:"effort,omitempty" db:"-"`
 	Fallback string `json:"fallback,omitempty" db:"-"`
+}
+
+// VertexProviderSettings holds Vertex AI routing options stored in provider settings JSONB.
+type VertexProviderSettings struct {
+	ProjectID string `json:"project_id,omitempty" db:"-"`
+	Location  string `json:"location,omitempty" db:"-"`
+	Model     string `json:"model,omitempty" db:"-"`
 }
 
 // ChatGPTOAuthProviderSettings holds provider-level defaults for Codex account pooling.
@@ -138,6 +147,20 @@ func ParseChatGPTOAuthProviderSettings(settings json.RawMessage) *ChatGPTOAuthPr
 		return nil
 	}
 	s.CodexPool.OverrideMode = ""
+	return &s
+}
+
+func ParseVertexProviderSettings(settings json.RawMessage) *VertexProviderSettings {
+	if len(settings) == 0 {
+		return nil
+	}
+	var s VertexProviderSettings
+	if json.Unmarshal(settings, &s) != nil {
+		return nil
+	}
+	if s.ProjectID == "" && s.Location == "" && s.Model == "" {
+		return nil
+	}
 	return &s
 }
 
@@ -179,6 +202,7 @@ var NoEmbeddingTypes = map[string]bool{
 	ProviderACP:             true,
 	ProviderClaudeCLI:       true,
 	ProviderChatGPTOAuth:    true,
+	ProviderVertex:          true,
 }
 
 // ProviderStore manages LLM providers.

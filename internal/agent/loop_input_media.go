@@ -53,7 +53,7 @@ func (l *Loop) enrichInputMedia(ctx context.Context, req *RunRequest, messages [
 	// If read_image tool has a dedicated vision provider, images are NOT attached inline
 	// to the main LLM — the agent calls read_image tool instead. This avoids sending
 	// images to providers that don't support vision or have strict content filters.
-	deferToReadImageTool := l.hasReadImageProvider()
+	deferToReadImageTool := l.hasReadImageProvider() && !req.ForceInlineImages
 
 	if !deferToReadImageTool {
 		// Inline mode: reload historical images directly into messages for main provider.

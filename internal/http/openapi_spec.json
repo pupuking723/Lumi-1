@@ -16,31 +16,98 @@
     }
   ],
   "tags": [
-    { "name": "Chat", "description": "OpenAI-compatible chat completions" },
-    { "name": "API Keys", "description": "Gateway API key management (admin only)" },
-    { "name": "Agents", "description": "Agent CRUD and configuration" },
-    { "name": "Sessions", "description": "Chat session management (via WebSocket RPC)" },
-    { "name": "Providers", "description": "LLM provider configuration" },
-    { "name": "OAuth", "description": "Provider-scoped OAuth status and quota endpoints" },
-    { "name": "Skills", "description": "Skill management and grants" },
-    { "name": "MCP Servers", "description": "MCP server configuration and grants" },
-    { "name": "Custom Tools", "description": "Custom tool definitions" },
-    { "name": "Built-in Tools", "description": "Built-in tool configuration" },
-    { "name": "Memory", "description": "Agent memory (pgvector) management" },
-    { "name": "Knowledge Graph", "description": "Entity knowledge graph" },
-    { "name": "Channels", "description": "Channel instance management" },
-    { "name": "Traces", "description": "LLM call tracing" },
-    { "name": "Usage", "description": "Usage analytics" },
-    { "name": "Activity", "description": "Audit activity log" },
-    { "name": "Storage", "description": "Workspace file management" },
-    { "name": "Media", "description": "Media upload and serving" },
-    { "name": "System", "description": "Health check and system info" }
+    {
+      "name": "Chat",
+      "description": "OpenAI-compatible chat completions"
+    },
+    {
+      "name": "API Keys",
+      "description": "Gateway API key management (admin only)"
+    },
+    {
+      "name": "Agents",
+      "description": "Agent CRUD and configuration"
+    },
+    {
+      "name": "Sessions",
+      "description": "Chat session management (via WebSocket RPC)"
+    },
+    {
+      "name": "Providers",
+      "description": "LLM provider configuration"
+    },
+    {
+      "name": "Live",
+      "description": "Realtime Vertex Gemini Live WebSocket bridge"
+    },
+    {
+      "name": "OAuth",
+      "description": "Provider-scoped OAuth status and quota endpoints"
+    },
+    {
+      "name": "Skills",
+      "description": "Skill management and grants"
+    },
+    {
+      "name": "MCP Servers",
+      "description": "MCP server configuration and grants"
+    },
+    {
+      "name": "Custom Tools",
+      "description": "Custom tool definitions"
+    },
+    {
+      "name": "Built-in Tools",
+      "description": "Built-in tool configuration"
+    },
+    {
+      "name": "Memory",
+      "description": "Agent memory (pgvector) management"
+    },
+    {
+      "name": "Knowledge Graph",
+      "description": "Entity knowledge graph"
+    },
+    {
+      "name": "Channels",
+      "description": "Channel instance management"
+    },
+    {
+      "name": "Traces",
+      "description": "LLM call tracing"
+    },
+    {
+      "name": "Usage",
+      "description": "Usage analytics"
+    },
+    {
+      "name": "Activity",
+      "description": "Audit activity log"
+    },
+    {
+      "name": "Storage",
+      "description": "Workspace file management"
+    },
+    {
+      "name": "Media",
+      "description": "Media upload and serving"
+    },
+    {
+      "name": "System",
+      "description": "Health check and system info"
+    }
   ],
-  "security": [{ "bearerAuth": [] }],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
   "paths": {
     "/health": {
       "get": {
-        "tags": ["System"],
+        "tags": [
+          "System"
+        ],
         "summary": "Health check",
         "security": [],
         "responses": {
@@ -51,10 +118,21 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "status": { "type": "string", "example": "ok" },
-                    "uptime_ms": { "type": "integer" },
-                    "mode": { "type": "string", "example": "managed" },
-                    "database": { "type": "string", "example": "ok" }
+                    "status": {
+                      "type": "string",
+                      "example": "ok"
+                    },
+                    "uptime_ms": {
+                      "type": "integer"
+                    },
+                    "mode": {
+                      "type": "string",
+                      "example": "managed"
+                    },
+                    "database": {
+                      "type": "string",
+                      "example": "ok"
+                    }
                   }
                 }
               }
@@ -65,7 +143,9 @@
     },
     "/v1/chat/completions": {
       "post": {
-        "tags": ["Chat"],
+        "tags": [
+          "Chat"
+        ],
         "summary": "OpenAI-compatible chat completions",
         "description": "Send messages to an agent and get a response. Compatible with OpenAI's chat completions API.\n\nUse the `model` field to target a specific agent: `goclaw:<agent-id>` or `agent:<agent-id>`.",
         "requestBody": {
@@ -74,7 +154,9 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["messages"],
+                "required": [
+                  "messages"
+                ],
                 "properties": {
                   "model": {
                     "type": "string",
@@ -85,30 +167,212 @@
                     "type": "array",
                     "items": {
                       "type": "object",
-                      "required": ["role", "content"],
+                      "required": [
+                        "role",
+                        "content"
+                      ],
                       "properties": {
-                        "role": { "type": "string", "enum": ["system", "user", "assistant"] },
-                        "content": { "type": "string" }
+                        "role": {
+                          "type": "string",
+                          "enum": [
+                            "system",
+                            "user",
+                            "assistant"
+                          ]
+                        },
+                        "content": {
+                          "type": "string"
+                        }
                       }
                     }
                   },
-                  "stream": { "type": "boolean", "default": false },
-                  "user": { "type": "string", "description": "External user ID" }
+                  "stream": {
+                    "type": "boolean",
+                    "default": false
+                  },
+                  "user": {
+                    "type": "string",
+                    "description": "External user ID"
+                  },
+                  "attachments": {
+                    "type": "array",
+                    "description": "C-side uploaded files returned by POST /v1/chat/attachments/upload.",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "media_id"
+                      ],
+                      "properties": {
+                        "media_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "description": "Uploaded media asset ID."
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "examples": {
+                "text": {
+                  "summary": "Text chat",
+                  "value": {
+                    "model": "agent:closy",
+                    "messages": [
+                      {
+                        "role": "user",
+                        "content": "你好，请介绍一下你自己"
+                      }
+                    ],
+                    "stream": false
+                  }
+                },
+                "with_attachment": {
+                  "summary": "Chat with uploaded attachment",
+                  "value": {
+                    "model": "agent:closy",
+                    "messages": [
+                      {
+                        "role": "user",
+                        "content": "帮我看看这套穿搭适合约会吗？"
+                      }
+                    ],
+                    "attachments": [
+                      {
+                        "media_id": "019e4fb1-169c-7e77-9f22-b311bc729410"
+                      }
+                    ],
+                    "stream": true
+                  }
                 }
               }
             }
           }
         },
         "responses": {
-          "200": { "description": "Chat completion response (or SSE stream if stream=true)" },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "429": { "description": "Rate limit exceeded" }
+          "200": {
+            "description": "Chat completion response (or SSE stream if stream=true)"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          }
+        }
+      }
+    },
+    "/v1/vertex/live/ws": {
+      "get": {
+        "tags": [
+          "Live"
+        ],
+        "summary": "Vertex Gemini Live WebSocket",
+        "description": "Upgrades to a WebSocket bridge for Vertex Gemini Live API. Browser clients may pass auth as `?token=` because WebSocket APIs cannot set custom Authorization headers in all environments. Client events: `audio`, `audio_end`, `activity_start`, `activity_end`, `text`, `close`. Server events: `live_ready`, `live_setup_complete`, `live_transcript`, `live_audio`, `message`, `done`, `error`.",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional gateway token/API key when Authorization header is unavailable"
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "example": "gemini-live-2.5-flash-native-audio"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "location",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "us-central1"
+            }
+          }
+        ],
+        "responses": {
+          "101": {
+            "description": "WebSocket upgrade"
+          },
+          "400": {
+            "description": "Invalid Vertex Live configuration"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/v1/closy/live/ws": {
+      "get": {
+        "tags": [
+          "Live"
+        ],
+        "summary": "Closy Live WebSocket",
+        "description": "Alias of `/v1/vertex/live/ws` for the Closy C-side realtime voice entry.",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional gateway token/API key when Authorization header is unavailable"
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "example": "gemini-live-2.5-flash-native-audio"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "location",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "us-central1"
+            }
+          }
+        ],
+        "responses": {
+          "101": {
+            "description": "WebSocket upgrade"
+          },
+          "400": {
+            "description": "Invalid Vertex Live configuration"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
         }
       }
     },
     "/v1/api-keys": {
       "get": {
-        "tags": ["API Keys"],
+        "tags": [
+          "API Keys"
+        ],
         "summary": "List all API keys",
         "description": "Returns all API keys (active and revoked). Key hashes are never included in responses. Requires admin access.",
         "responses": {
@@ -118,16 +382,22 @@
               "application/json": {
                 "schema": {
                   "type": "array",
-                  "items": { "$ref": "#/components/schemas/ApiKey" }
+                  "items": {
+                    "$ref": "#/components/schemas/ApiKey"
+                  }
                 }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
         }
       },
       "post": {
-        "tags": ["API Keys"],
+        "tags": [
+          "API Keys"
+        ],
         "summary": "Create a new API key",
         "description": "Creates a new API key with the specified scopes. The raw key is returned **only once** in the response — store it securely.\n\nAvailable scopes:\n- `operator.admin` — Full admin access\n- `operator.read` — Read-only access\n- `operator.write` — Read + write access\n- `operator.approvals` — Manage exec approvals\n- `operator.pairing` — Manage device pairing",
         "requestBody": {
@@ -136,13 +406,31 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["name", "scopes"],
+                "required": [
+                  "name",
+                  "scopes"
+                ],
                 "properties": {
-                  "name": { "type": "string", "example": "ci-deploy" },
+                  "name": {
+                    "type": "string",
+                    "example": "ci-deploy"
+                  },
                   "scopes": {
                     "type": "array",
-                    "items": { "type": "string", "enum": ["operator.admin", "operator.read", "operator.write", "operator.approvals", "operator.pairing"] },
-                    "example": ["operator.read", "operator.write"]
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "operator.admin",
+                        "operator.read",
+                        "operator.write",
+                        "operator.approvals",
+                        "operator.pairing"
+                      ]
+                    },
+                    "example": [
+                      "operator.read",
+                      "operator.write"
+                    ]
                   },
                   "expires_in": {
                     "type": "integer",
@@ -162,44 +450,100 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "id": { "type": "string", "format": "uuid" },
-                    "name": { "type": "string" },
-                    "prefix": { "type": "string", "example": "goclaw_a" },
-                    "key": { "type": "string", "description": "Raw API key (shown once)", "example": "goclaw_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4" },
-                    "scopes": { "type": "array", "items": { "type": "string" } },
-                    "expires_at": { "type": "string", "format": "date-time", "nullable": true },
-                    "created_at": { "type": "string", "format": "date-time" }
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "prefix": {
+                      "type": "string",
+                      "example": "goclaw_a"
+                    },
+                    "key": {
+                      "type": "string",
+                      "description": "Raw API key (shown once)",
+                      "example": "goclaw_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
+                    },
+                    "scopes": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "expires_at": {
+                      "type": "string",
+                      "format": "date-time",
+                      "nullable": true
+                    },
+                    "created_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
                   }
                 }
               }
             }
           },
-          "400": { "$ref": "#/components/responses/BadRequest" },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
         }
       }
     },
     "/v1/api-keys/{id}": {
       "delete": {
-        "tags": ["API Keys"],
+        "tags": [
+          "API Keys"
+        ],
         "summary": "Revoke an API key",
         "description": "Revokes an API key. Revoked keys can no longer be used for authentication. This action cannot be undone.",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
         ],
         "responses": {
           "200": {
             "description": "Key revoked",
-            "content": { "application/json": { "schema": { "type": "object", "properties": { "status": { "type": "string", "example": "revoked" } } } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "example": "revoked"
+                    }
+                  }
+                }
+              }
+            }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "404": { "$ref": "#/components/responses/NotFound" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
         }
       }
     },
     "/v1/auth/chatgpt/{provider}/quota": {
       "get": {
-        "tags": ["OAuth"],
+        "tags": [
+          "OAuth"
+        ],
         "summary": "Fetch OpenAI Codex OAuth quota for a provider",
         "description": "Returns structured Codex/OpenAI quota state for a specific OpenAI Codex OAuth (`chatgpt_oauth`) provider. Missing provider returns `404`, provider type conflicts return `409`, and upstream quota problems return `200` with `success=false` so dashboards can render inline action states.",
         "parameters": [
@@ -207,7 +551,9 @@
             "name": "provider",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" },
+            "schema": {
+              "type": "string"
+            },
             "description": "Provider alias (for example `openai-codex` or `codex-work`)."
           }
         ],
@@ -218,21 +564,52 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": ["provider_name", "success", "windows", "last_updated"],
+                  "required": [
+                    "provider_name",
+                    "success",
+                    "windows",
+                    "last_updated"
+                  ],
                   "properties": {
-                    "provider_name": { "type": "string", "example": "openai-codex" },
-                    "success": { "type": "boolean" },
-                    "plan_type": { "type": "string", "nullable": true, "example": "team" },
+                    "provider_name": {
+                      "type": "string",
+                      "example": "openai-codex"
+                    },
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "plan_type": {
+                      "type": "string",
+                      "nullable": true,
+                      "example": "team"
+                    },
                     "windows": {
                       "type": "array",
                       "items": {
                         "type": "object",
                         "properties": {
-                          "label": { "type": "string", "example": "Primary" },
-                          "used_percent": { "type": "integer", "example": 24 },
-                          "remaining_percent": { "type": "integer", "example": 76 },
-                          "reset_after_seconds": { "type": "integer", "nullable": true, "example": 3600 },
-                          "reset_at": { "type": "string", "format": "date-time", "nullable": true }
+                          "label": {
+                            "type": "string",
+                            "example": "Primary"
+                          },
+                          "used_percent": {
+                            "type": "integer",
+                            "example": 24
+                          },
+                          "remaining_percent": {
+                            "type": "integer",
+                            "example": 76
+                          },
+                          "reset_after_seconds": {
+                            "type": "integer",
+                            "nullable": true,
+                            "example": 3600
+                          },
+                          "reset_at": {
+                            "type": "string",
+                            "format": "date-time",
+                            "nullable": true
+                          }
                         }
                       }
                     },
@@ -244,46 +621,93 @@
                           "type": "object",
                           "nullable": true,
                           "properties": {
-                            "label": { "type": "string" },
-                            "remaining_percent": { "type": "integer" },
-                            "reset_after_seconds": { "type": "integer", "nullable": true },
-                            "reset_at": { "type": "string", "format": "date-time", "nullable": true }
+                            "label": {
+                              "type": "string"
+                            },
+                            "remaining_percent": {
+                              "type": "integer"
+                            },
+                            "reset_after_seconds": {
+                              "type": "integer",
+                              "nullable": true
+                            },
+                            "reset_at": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            }
                           }
                         },
                         "weekly": {
                           "type": "object",
                           "nullable": true,
                           "properties": {
-                            "label": { "type": "string" },
-                            "remaining_percent": { "type": "integer" },
-                            "reset_after_seconds": { "type": "integer", "nullable": true },
-                            "reset_at": { "type": "string", "format": "date-time", "nullable": true }
+                            "label": {
+                              "type": "string"
+                            },
+                            "remaining_percent": {
+                              "type": "integer"
+                            },
+                            "reset_after_seconds": {
+                              "type": "integer",
+                              "nullable": true
+                            },
+                            "reset_at": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            }
                           }
                         }
                       }
                     },
-                    "last_updated": { "type": "string", "format": "date-time" },
-                    "error": { "type": "string" },
-                    "error_code": { "type": "string" },
-                    "action_hint": { "type": "string" },
-                    "needs_reauth": { "type": "boolean" },
-                    "is_forbidden": { "type": "boolean" },
-                    "retryable": { "type": "boolean" }
+                    "last_updated": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "error_code": {
+                      "type": "string"
+                    },
+                    "action_hint": {
+                      "type": "string"
+                    },
+                    "needs_reauth": {
+                      "type": "boolean"
+                    },
+                    "is_forbidden": {
+                      "type": "boolean"
+                    },
+                    "retryable": {
+                      "type": "boolean"
+                    }
                   }
                 }
               }
             }
           },
-          "400": { "$ref": "#/components/responses/BadRequest" },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "404": { "$ref": "#/components/responses/NotFound" },
-          "409": { "$ref": "#/components/responses/Conflict" }
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
         }
       }
     },
     "/v1/auth/openai/quota": {
       "get": {
-        "tags": ["OAuth"],
+        "tags": [
+          "OAuth"
+        ],
         "summary": "Fetch quota for the default OpenAI Codex OAuth provider",
         "description": "Compatibility alias for `/v1/auth/chatgpt/openai-codex/quota`.",
         "responses": {
@@ -297,70 +721,183 @@
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "404": { "$ref": "#/components/responses/NotFound" },
-          "409": { "$ref": "#/components/responses/Conflict" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
         }
       }
     },
     "/v1/agents": {
       "get": {
-        "tags": ["Agents"],
+        "tags": [
+          "Agents"
+        ],
         "summary": "List agents",
         "description": "List all agents accessible to the current user. Owners see all agents.",
         "parameters": [
-          { "name": "X-GoClaw-User-Id", "in": "header", "required": true, "schema": { "type": "string" } }
+          {
+            "name": "X-GoClaw-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
-          "200": { "description": "Agent list" },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
+          "200": {
+            "description": "Agent list"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
         }
       },
       "post": {
-        "tags": ["Agents"],
+        "tags": [
+          "Agents"
+        ],
         "summary": "Create agent",
         "description": "Create a new agent with the specified configuration.",
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentInput" } } } },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentInput"
+              }
+            }
+          }
+        },
         "responses": {
-          "201": { "description": "Agent created" },
-          "400": { "$ref": "#/components/responses/BadRequest" },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
+          "201": {
+            "description": "Agent created"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
         }
       }
     },
     "/v1/agents/{id}": {
       "get": {
-        "tags": ["Agents"],
+        "tags": [
+          "Agents"
+        ],
         "summary": "Get agent",
-        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
-        "responses": { "200": { "description": "Agent details" }, "404": { "$ref": "#/components/responses/NotFound" } }
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Agent details"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
       },
       "put": {
-        "tags": ["Agents"],
+        "tags": [
+          "Agents"
+        ],
         "summary": "Update agent",
-        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentInput" } } } },
-        "responses": { "200": { "description": "Agent updated" }, "404": { "$ref": "#/components/responses/NotFound" } }
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Agent updated"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
       },
       "delete": {
-        "tags": ["Agents"],
+        "tags": [
+          "Agents"
+        ],
         "summary": "Delete agent",
-        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
-        "responses": { "200": { "description": "Agent deleted" }, "404": { "$ref": "#/components/responses/NotFound" } }
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Agent deleted"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
       }
     },
     "/v1/agents/{id}/codex-pool-activity": {
       "get": {
-        "tags": ["Agents"],
+        "tags": [
+          "Agents"
+        ],
         "summary": "Summarize recent OpenAI Codex OAuth pool activity for an agent",
         "description": "Returns explicit router-backed evidence for recent OpenAI Codex OAuth calls in the configured provider pool. Direct router selections are reported separately from failover serves, and each recent request shows both the selected alias and the alias that actually served the call.",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
           {
             "name": "limit",
             "in": "query",
             "required": false,
-            "schema": { "type": "integer", "default": 18, "minimum": 1, "maximum": 50 },
+            "schema": {
+              "type": "integer",
+              "default": 18,
+              "minimum": 1,
+              "maximum": 50
+            },
             "description": "Maximum number of recent routed Codex LLM calls to include."
           }
         ],
@@ -371,12 +908,26 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": ["strategy", "pool_providers", "stats_sample_size", "provider_counts", "recent_requests"],
+                  "required": [
+                    "strategy",
+                    "pool_providers",
+                    "stats_sample_size",
+                    "provider_counts",
+                    "recent_requests"
+                  ],
                   "properties": {
-                    "strategy": { "type": "string", "enum": ["round_robin", "priority_order"] },
+                    "strategy": {
+                      "type": "string",
+                      "enum": [
+                        "round_robin",
+                        "priority_order"
+                      ]
+                    },
                     "pool_providers": {
                       "type": "array",
-                      "items": { "type": "string" }
+                      "items": {
+                        "type": "string"
+                      }
                     },
                     "stats_sample_size": {
                       "type": "integer",
@@ -386,23 +937,90 @@
                       "type": "array",
                       "items": {
                         "type": "object",
-                        "required": ["provider_name", "request_count", "direct_selection_count", "failover_serve_count", "success_count", "failure_count", "consecutive_failures", "success_rate", "health_score", "health_state"],
+                        "required": [
+                          "provider_name",
+                          "request_count",
+                          "direct_selection_count",
+                          "failover_serve_count",
+                          "success_count",
+                          "failure_count",
+                          "consecutive_failures",
+                          "success_rate",
+                          "health_score",
+                          "health_state"
+                        ],
                         "properties": {
-                          "provider_name": { "type": "string", "description": "Provider alias in the configured pool." },
-                          "request_count": { "type": "integer", "description": "Backward-compatible count of requests where this alias was directly selected by the router." },
-                          "direct_selection_count": { "type": "integer", "description": "Number of recent requests where the router selected this alias first." },
-                          "failover_serve_count": { "type": "integer", "description": "Number of recent requests this alias served after another alias was selected first." },
-                          "success_count": { "type": "integer", "description": "Trace-backed successes attributed to the alias that actually served the request." },
-                          "failure_count": { "type": "integer", "description": "Trace-backed failures attributed to earlier attempted aliases on successful failover, or to every attempted alias on terminal error." },
-                          "consecutive_failures": { "type": "integer", "description": "Newest-first failure streak for this alias." },
-                          "success_rate": { "type": "integer", "description": "Success rate percent derived from recent runtime outcomes." },
-                          "health_score": { "type": "integer", "description": "Heuristic runtime health score from 0 to 100." },
-                          "health_state": { "type": "string", "description": "Health band derived from recent runtime outcomes: idle when there are no outcomes, critical at 3+ consecutive failures or score < 40, degraded below 80, otherwise healthy.", "enum": ["idle", "healthy", "degraded", "critical"] },
-                          "last_selected_at": { "type": "string", "format": "date-time", "nullable": true },
-                          "last_failover_at": { "type": "string", "format": "date-time", "nullable": true },
-                          "last_used_at": { "type": "string", "format": "date-time", "nullable": true },
-                          "last_success_at": { "type": "string", "format": "date-time", "nullable": true },
-                          "last_failure_at": { "type": "string", "format": "date-time", "nullable": true }
+                          "provider_name": {
+                            "type": "string",
+                            "description": "Provider alias in the configured pool."
+                          },
+                          "request_count": {
+                            "type": "integer",
+                            "description": "Backward-compatible count of requests where this alias was directly selected by the router."
+                          },
+                          "direct_selection_count": {
+                            "type": "integer",
+                            "description": "Number of recent requests where the router selected this alias first."
+                          },
+                          "failover_serve_count": {
+                            "type": "integer",
+                            "description": "Number of recent requests this alias served after another alias was selected first."
+                          },
+                          "success_count": {
+                            "type": "integer",
+                            "description": "Trace-backed successes attributed to the alias that actually served the request."
+                          },
+                          "failure_count": {
+                            "type": "integer",
+                            "description": "Trace-backed failures attributed to earlier attempted aliases on successful failover, or to every attempted alias on terminal error."
+                          },
+                          "consecutive_failures": {
+                            "type": "integer",
+                            "description": "Newest-first failure streak for this alias."
+                          },
+                          "success_rate": {
+                            "type": "integer",
+                            "description": "Success rate percent derived from recent runtime outcomes."
+                          },
+                          "health_score": {
+                            "type": "integer",
+                            "description": "Heuristic runtime health score from 0 to 100."
+                          },
+                          "health_state": {
+                            "type": "string",
+                            "description": "Health band derived from recent runtime outcomes: idle when there are no outcomes, critical at 3+ consecutive failures or score < 40, degraded below 80, otherwise healthy.",
+                            "enum": [
+                              "idle",
+                              "healthy",
+                              "degraded",
+                              "critical"
+                            ]
+                          },
+                          "last_selected_at": {
+                            "type": "string",
+                            "format": "date-time",
+                            "nullable": true
+                          },
+                          "last_failover_at": {
+                            "type": "string",
+                            "format": "date-time",
+                            "nullable": true
+                          },
+                          "last_used_at": {
+                            "type": "string",
+                            "format": "date-time",
+                            "nullable": true
+                          },
+                          "last_success_at": {
+                            "type": "string",
+                            "format": "date-time",
+                            "nullable": true
+                          },
+                          "last_failure_at": {
+                            "type": "string",
+                            "format": "date-time",
+                            "nullable": true
+                          }
                         }
                       }
                     },
@@ -410,21 +1028,58 @@
                       "type": "array",
                       "items": {
                         "type": "object",
-                        "required": ["span_id", "trace_id", "started_at", "status", "duration_ms", "provider_name", "model", "attempt_count", "used_failover"],
+                        "required": [
+                          "span_id",
+                          "trace_id",
+                          "started_at",
+                          "status",
+                          "duration_ms",
+                          "provider_name",
+                          "model",
+                          "attempt_count",
+                          "used_failover"
+                        ],
                         "properties": {
-                          "span_id": { "type": "string", "format": "uuid" },
-                          "trace_id": { "type": "string", "format": "uuid" },
-                          "started_at": { "type": "string", "format": "date-time" },
-                          "status": { "type": "string" },
-                          "duration_ms": { "type": "integer" },
-                          "provider_name": { "type": "string", "description": "Alias that actually served the request. Empty when a terminal failure completed without any alias serving successfully." },
-                          "selected_provider": { "type": "string", "description": "Alias chosen first by the router before any failover." },
-                          "model": { "type": "string" },
-                          "attempt_count": { "type": "integer" },
-                          "used_failover": { "type": "boolean" },
+                          "span_id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "trace_id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "started_at": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "duration_ms": {
+                            "type": "integer"
+                          },
+                          "provider_name": {
+                            "type": "string",
+                            "description": "Alias that actually served the request. Empty when a terminal failure completed without any alias serving successfully."
+                          },
+                          "selected_provider": {
+                            "type": "string",
+                            "description": "Alias chosen first by the router before any failover."
+                          },
+                          "model": {
+                            "type": "string"
+                          },
+                          "attempt_count": {
+                            "type": "integer"
+                          },
+                          "used_failover": {
+                            "type": "boolean"
+                          },
                           "failover_providers": {
                             "type": "array",
-                            "items": { "type": "string" }
+                            "items": {
+                              "type": "string"
+                            }
                           }
                         }
                       }
@@ -434,59 +1089,175 @@
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "404": { "$ref": "#/components/responses/NotFound" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
         }
       }
     },
     "/v1/agents/{id}/wake": {
       "post": {
-        "tags": ["Agents"],
+        "tags": [
+          "Agents"
+        ],
         "summary": "Wake/trigger agent externally",
         "description": "Trigger an agent run from an external webhook or automation.",
-        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
-        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "message": { "type": "string" }, "user_id": { "type": "string" } } } } } },
-        "responses": { "200": { "description": "Agent triggered" } }
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "message": {
+                    "type": "string"
+                  },
+                  "user_id": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Agent triggered"
+          }
+        }
       }
     },
     "/v1/providers": {
       "get": {
-        "tags": ["Providers"],
+        "tags": [
+          "Providers"
+        ],
         "summary": "List LLM providers",
-        "responses": { "200": { "description": "Provider list (API keys masked)" } }
+        "responses": {
+          "200": {
+            "description": "Provider list (API keys masked)"
+          }
+        }
       },
       "post": {
-        "tags": ["Providers"],
+        "tags": [
+          "Providers"
+        ],
         "summary": "Create LLM provider",
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProviderInput" } } } },
-        "responses": { "201": { "description": "Provider created" } }
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProviderInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Provider created"
+          }
+        }
       }
     },
     "/v1/providers/{id}": {
       "get": {
-        "tags": ["Providers"],
+        "tags": [
+          "Providers"
+        ],
         "summary": "Get provider",
-        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
-        "responses": { "200": { "description": "Provider details (API key masked)" } }
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Provider details (API key masked)"
+          }
+        }
       },
       "put": {
-        "tags": ["Providers"],
+        "tags": [
+          "Providers"
+        ],
         "summary": "Update provider",
-        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
-        "responses": { "200": { "description": "Provider updated" } }
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Provider updated"
+          }
+        }
       },
       "delete": {
-        "tags": ["Providers"],
+        "tags": [
+          "Providers"
+        ],
         "summary": "Delete provider",
-        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
-        "responses": { "200": { "description": "Provider deleted" } }
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Provider deleted"
+          }
+        }
       }
     },
     "/v1/providers/{id}/models": {
       "get": {
-        "tags": ["Providers"],
+        "tags": [
+          "Providers"
+        ],
         "summary": "List available models",
-        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Model list with optional reasoning capability metadata",
@@ -500,20 +1271,30 @@
                       "items": {
                         "type": "object",
                         "properties": {
-                          "id": { "type": "string" },
-                          "name": { "type": "string" },
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
                           "reasoning": {
                             "type": "object",
                             "properties": {
                               "levels": {
                                 "type": "array",
-                                "items": { "type": "string" }
+                                "items": {
+                                  "type": "string"
+                                }
                               },
-                              "default_effort": { "type": "string" }
+                              "default_effort": {
+                                "type": "string"
+                              }
                             }
                           }
                         },
-                        "required": ["id"]
+                        "required": [
+                          "id"
+                        ]
                       }
                     },
                     "reasoning_defaults": {
@@ -522,16 +1303,31 @@
                       "properties": {
                         "effort": {
                           "type": "string",
-                          "enum": ["off", "auto", "none", "minimal", "low", "medium", "high", "xhigh"]
+                          "enum": [
+                            "off",
+                            "auto",
+                            "none",
+                            "minimal",
+                            "low",
+                            "medium",
+                            "high",
+                            "xhigh"
+                          ]
                         },
                         "fallback": {
                           "type": "string",
-                          "enum": ["downgrade", "off", "provider_default"]
+                          "enum": [
+                            "downgrade",
+                            "off",
+                            "provider_default"
+                          ]
                         }
                       }
                     }
                   },
-                  "required": ["models"]
+                  "required": [
+                    "models"
+                  ]
                 }
               }
             }
@@ -541,315 +1337,951 @@
     },
     "/v1/providers/{id}/verify": {
       "post": {
-        "tags": ["Providers"],
+        "tags": [
+          "Providers"
+        ],
         "summary": "Verify provider connection",
         "description": "Empty body or omitted model = ping mode (provider registered/reachable check). With model = full chat-verify against the upstream provider.",
-        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
-        "requestBody": { "required": false, "content": { "application/json": { "schema": { "type": "object", "properties": { "model": { "type": "string", "description": "Optional. Omit (or send empty body) for ping mode." } } } } } },
-        "responses": { "200": { "description": "Verification result", "content": { "application/json": { "schema": { "type": "object", "properties": { "valid": { "type": "boolean" }, "error": { "type": "string" } } } } } } }
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "model": {
+                    "type": "string",
+                    "description": "Optional. Omit (or send empty body) for ping mode."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Verification result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "valid": {
+                      "type": "boolean"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/v1/skills": {
       "get": {
-        "tags": ["Skills"],
+        "tags": [
+          "Skills"
+        ],
         "summary": "List all skills",
-        "responses": { "200": { "description": "Skill list" } }
+        "responses": {
+          "200": {
+            "description": "Skill list"
+          }
+        }
       },
       "post": {
-        "tags": ["Skills"],
+        "tags": [
+          "Skills"
+        ],
         "summary": "Upload skill",
-        "requestBody": { "content": { "multipart/form-data": {} } },
-        "responses": { "201": { "description": "Skill uploaded" } }
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {}
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Skill uploaded"
+          }
+        }
       }
     },
     "/v1/skills/{id}": {
       "get": {
-        "tags": ["Skills"],
+        "tags": [
+          "Skills"
+        ],
         "summary": "Get skill",
-        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
-        "responses": { "200": { "description": "Skill details" } }
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Skill details"
+          }
+        }
       },
       "put": {
-        "tags": ["Skills"],
+        "tags": [
+          "Skills"
+        ],
         "summary": "Update skill",
-        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
-        "responses": { "200": { "description": "Skill updated" } }
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Skill updated"
+          }
+        }
       },
       "delete": {
-        "tags": ["Skills"],
+        "tags": [
+          "Skills"
+        ],
         "summary": "Delete skill",
-        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
-        "responses": { "200": { "description": "Skill deleted" } }
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Skill deleted"
+          }
+        }
       }
     },
     "/v1/tools/custom": {
       "get": {
-        "tags": ["Custom Tools"],
+        "tags": [
+          "Custom Tools"
+        ],
         "summary": "List custom tools",
-        "responses": { "200": { "description": "Custom tool list" } }
+        "responses": {
+          "200": {
+            "description": "Custom tool list"
+          }
+        }
       },
       "post": {
-        "tags": ["Custom Tools"],
+        "tags": [
+          "Custom Tools"
+        ],
         "summary": "Create custom tool",
-        "responses": { "201": { "description": "Tool created" } }
+        "responses": {
+          "201": {
+            "description": "Tool created"
+          }
+        }
       }
     },
     "/v1/tools/custom/{id}": {
       "get": {
-        "tags": ["Custom Tools"],
+        "tags": [
+          "Custom Tools"
+        ],
         "summary": "Get custom tool",
-        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
-        "responses": { "200": { "description": "Tool details" } }
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tool details"
+          }
+        }
       },
       "put": {
-        "tags": ["Custom Tools"],
+        "tags": [
+          "Custom Tools"
+        ],
         "summary": "Update custom tool",
-        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
-        "responses": { "200": { "description": "Tool updated" } }
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tool updated"
+          }
+        }
       },
       "delete": {
-        "tags": ["Custom Tools"],
+        "tags": [
+          "Custom Tools"
+        ],
         "summary": "Delete custom tool",
-        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
-        "responses": { "200": { "description": "Tool deleted" } }
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tool deleted"
+          }
+        }
       }
     },
     "/v1/tools/builtin": {
       "get": {
-        "tags": ["Built-in Tools"],
+        "tags": [
+          "Built-in Tools"
+        ],
         "summary": "List built-in tools",
-        "responses": { "200": { "description": "Built-in tool list" } }
+        "responses": {
+          "200": {
+            "description": "Built-in tool list"
+          }
+        }
       }
     },
     "/v1/tools/builtin/{name}": {
       "get": {
-        "tags": ["Built-in Tools"],
+        "tags": [
+          "Built-in Tools"
+        ],
         "summary": "Get built-in tool",
-        "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }],
-        "responses": { "200": { "description": "Tool details" } }
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tool details"
+          }
+        }
       },
       "put": {
-        "tags": ["Built-in Tools"],
+        "tags": [
+          "Built-in Tools"
+        ],
         "summary": "Update tool settings",
-        "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }],
-        "responses": { "200": { "description": "Tool updated" } }
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tool updated"
+          }
+        }
       }
     },
     "/v1/mcp/servers": {
       "get": {
-        "tags": ["MCP Servers"],
+        "tags": [
+          "MCP Servers"
+        ],
         "summary": "List MCP servers",
-        "responses": { "200": { "description": "MCP server list" } }
+        "responses": {
+          "200": {
+            "description": "MCP server list"
+          }
+        }
       },
       "post": {
-        "tags": ["MCP Servers"],
+        "tags": [
+          "MCP Servers"
+        ],
         "summary": "Create MCP server",
-        "responses": { "201": { "description": "Server created" } }
+        "responses": {
+          "201": {
+            "description": "Server created"
+          }
+        }
       }
     },
     "/v1/mcp/servers/{id}": {
       "get": {
-        "tags": ["MCP Servers"],
+        "tags": [
+          "MCP Servers"
+        ],
         "summary": "Get MCP server",
-        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
-        "responses": { "200": { "description": "Server details" } }
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Server details"
+          }
+        }
       },
       "put": {
-        "tags": ["MCP Servers"],
+        "tags": [
+          "MCP Servers"
+        ],
         "summary": "Update MCP server",
-        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
-        "responses": { "200": { "description": "Server updated" } }
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Server updated"
+          }
+        }
       },
       "delete": {
-        "tags": ["MCP Servers"],
+        "tags": [
+          "MCP Servers"
+        ],
         "summary": "Delete MCP server",
-        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
-        "responses": { "200": { "description": "Server deleted" } }
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Server deleted"
+          }
+        }
       }
     },
     "/v1/mcp/servers/{id}/tools": {
       "get": {
-        "tags": ["MCP Servers"],
+        "tags": [
+          "MCP Servers"
+        ],
         "summary": "List server tools",
-        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
-        "responses": { "200": { "description": "Tool list" } }
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tool list"
+          }
+        }
       }
     },
     "/v1/memory/documents": {
       "get": {
-        "tags": ["Memory"],
+        "tags": [
+          "Memory"
+        ],
         "summary": "List all memory documents",
-        "responses": { "200": { "description": "Document list" } }
+        "responses": {
+          "200": {
+            "description": "Document list"
+          }
+        }
       }
     },
     "/v1/agents/{agentID}/memory/search": {
       "post": {
-        "tags": ["Memory"],
+        "tags": [
+          "Memory"
+        ],
         "summary": "Search agent memory",
-        "parameters": [{ "name": "agentID", "in": "path", "required": true, "schema": { "type": "string" } }],
-        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "query": { "type": "string" }, "limit": { "type": "integer", "default": 10 } } } } } },
-        "responses": { "200": { "description": "Search results" } }
+        "parameters": [
+          {
+            "name": "agentID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "query": {
+                    "type": "string"
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "default": 10
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Search results"
+          }
+        }
       }
     },
     "/v1/agents/{agentID}/kg/entities": {
       "get": {
-        "tags": ["Knowledge Graph"],
+        "tags": [
+          "Knowledge Graph"
+        ],
         "summary": "List KG entities",
-        "parameters": [{ "name": "agentID", "in": "path", "required": true, "schema": { "type": "string" } }],
-        "responses": { "200": { "description": "Entity list" } }
+        "parameters": [
+          {
+            "name": "agentID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Entity list"
+          }
+        }
       },
       "post": {
-        "tags": ["Knowledge Graph"],
+        "tags": [
+          "Knowledge Graph"
+        ],
         "summary": "Upsert KG entity",
-        "parameters": [{ "name": "agentID", "in": "path", "required": true, "schema": { "type": "string" } }],
-        "responses": { "200": { "description": "Entity upserted" } }
+        "parameters": [
+          {
+            "name": "agentID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Entity upserted"
+          }
+        }
       }
     },
     "/v1/agents/{agentID}/kg/traverse": {
       "post": {
-        "tags": ["Knowledge Graph"],
+        "tags": [
+          "Knowledge Graph"
+        ],
         "summary": "Traverse knowledge graph",
-        "parameters": [{ "name": "agentID", "in": "path", "required": true, "schema": { "type": "string" } }],
-        "responses": { "200": { "description": "Traversal results" } }
+        "parameters": [
+          {
+            "name": "agentID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Traversal results"
+          }
+        }
       }
     },
     "/v1/channels/instances": {
       "get": {
-        "tags": ["Channels"],
+        "tags": [
+          "Channels"
+        ],
         "summary": "List channel instances",
-        "responses": { "200": { "description": "Instance list" } }
+        "responses": {
+          "200": {
+            "description": "Instance list"
+          }
+        }
       },
       "post": {
-        "tags": ["Channels"],
+        "tags": [
+          "Channels"
+        ],
         "summary": "Create channel instance",
-        "responses": { "201": { "description": "Instance created" } }
+        "responses": {
+          "201": {
+            "description": "Instance created"
+          }
+        }
       }
     },
     "/v1/channels/instances/{id}": {
       "get": {
-        "tags": ["Channels"],
+        "tags": [
+          "Channels"
+        ],
         "summary": "Get channel instance",
-        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
-        "responses": { "200": { "description": "Instance details" } }
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Instance details"
+          }
+        }
       },
       "put": {
-        "tags": ["Channels"],
+        "tags": [
+          "Channels"
+        ],
         "summary": "Update channel instance",
-        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
-        "responses": { "200": { "description": "Instance updated" } }
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Instance updated"
+          }
+        }
       },
       "delete": {
-        "tags": ["Channels"],
+        "tags": [
+          "Channels"
+        ],
         "summary": "Delete channel instance",
-        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
-        "responses": { "200": { "description": "Instance deleted" } }
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Instance deleted"
+          }
+        }
       }
     },
     "/v1/contacts": {
       "get": {
-        "tags": ["Channels"],
+        "tags": [
+          "Channels"
+        ],
         "summary": "List channel contacts",
-        "responses": { "200": { "description": "Contact list" } }
+        "responses": {
+          "200": {
+            "description": "Contact list"
+          }
+        }
       }
     },
     "/v1/traces": {
       "get": {
-        "tags": ["Traces"],
+        "tags": [
+          "Traces"
+        ],
         "summary": "List LLM traces",
         "parameters": [
-          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 50 } },
-          { "name": "offset", "in": "query", "schema": { "type": "integer", "default": 0 } },
-          { "name": "agent_id", "in": "query", "schema": { "type": "string" } }
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          },
+          {
+            "name": "agent_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
-        "responses": { "200": { "description": "Trace list" } }
+        "responses": {
+          "200": {
+            "description": "Trace list"
+          }
+        }
       }
     },
     "/v1/traces/{traceID}": {
       "get": {
-        "tags": ["Traces"],
+        "tags": [
+          "Traces"
+        ],
         "summary": "Get trace detail",
-        "parameters": [{ "name": "traceID", "in": "path", "required": true, "schema": { "type": "string" } }],
-        "responses": { "200": { "description": "Trace detail with messages" } }
+        "parameters": [
+          {
+            "name": "traceID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Trace detail with messages"
+          }
+        }
       }
     },
     "/v1/costs/summary": {
       "get": {
-        "tags": ["Traces"],
+        "tags": [
+          "Traces"
+        ],
         "summary": "Get cost summary",
-        "responses": { "200": { "description": "Cost summary" } }
+        "responses": {
+          "200": {
+            "description": "Cost summary"
+          }
+        }
       }
     },
     "/v1/usage/timeseries": {
       "get": {
-        "tags": ["Usage"],
+        "tags": [
+          "Usage"
+        ],
         "summary": "Usage timeseries analytics",
         "parameters": [
-          { "name": "period", "in": "query", "schema": { "type": "string", "enum": ["1h", "24h", "7d", "30d"] } }
+          {
+            "name": "period",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1h",
+                "24h",
+                "7d",
+                "30d"
+              ]
+            }
+          }
         ],
-        "responses": { "200": { "description": "Timeseries data" } }
+        "responses": {
+          "200": {
+            "description": "Timeseries data"
+          }
+        }
       }
     },
     "/v1/usage/summary": {
       "get": {
-        "tags": ["Usage"],
+        "tags": [
+          "Usage"
+        ],
         "summary": "Usage summary",
-        "responses": { "200": { "description": "Usage summary" } }
+        "responses": {
+          "200": {
+            "description": "Usage summary"
+          }
+        }
       }
     },
     "/v1/activity": {
       "get": {
-        "tags": ["Activity"],
+        "tags": [
+          "Activity"
+        ],
         "summary": "List audit activity logs",
         "parameters": [
-          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 50 } },
-          { "name": "offset", "in": "query", "schema": { "type": "integer", "default": 0 } }
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          }
         ],
-        "responses": { "200": { "description": "Activity log entries" } }
+        "responses": {
+          "200": {
+            "description": "Activity log entries"
+          }
+        }
       }
     },
     "/v1/delegations": {
       "get": {
-        "tags": ["Activity"],
+        "tags": [
+          "Activity"
+        ],
         "summary": "List delegation history",
-        "responses": { "200": { "description": "Delegation list" } }
+        "responses": {
+          "200": {
+            "description": "Delegation list"
+          }
+        }
       }
     },
     "/v1/storage/files": {
       "get": {
-        "tags": ["Storage"],
+        "tags": [
+          "Storage"
+        ],
         "summary": "List workspace files",
         "parameters": [
-          { "name": "path", "in": "query", "schema": { "type": "string" }, "description": "Subdirectory path" }
+          {
+            "name": "path",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Subdirectory path"
+          }
         ],
-        "responses": { "200": { "description": "File listing" } }
+        "responses": {
+          "200": {
+            "description": "File listing"
+          }
+        }
       }
     },
     "/v1/media/upload": {
       "post": {
-        "tags": ["Media"],
+        "tags": [
+          "Media"
+        ],
         "summary": "Upload media file",
-        "requestBody": { "content": { "multipart/form-data": { "schema": { "type": "object", "properties": { "file": { "type": "string", "format": "binary" } } } } } },
-        "responses": { "200": { "description": "Upload result with temp path and MIME type" } }
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Upload result with temp path and MIME type"
+          }
+        }
       }
     },
     "/v1/media/{id}": {
       "get": {
-        "tags": ["Media"],
+        "tags": [
+          "Media"
+        ],
         "summary": "Serve media by ID",
-        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
-        "responses": { "200": { "description": "Media file" } }
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Media file"
+          }
+        }
       }
     },
     "/v1/pending-messages": {
       "get": {
-        "tags": ["Channels"],
+        "tags": [
+          "Channels"
+        ],
         "summary": "List pending message groups",
-        "responses": { "200": { "description": "Message group list" } }
+        "responses": {
+          "200": {
+            "description": "Message group list"
+          }
+        }
       },
       "delete": {
-        "tags": ["Channels"],
+        "tags": [
+          "Channels"
+        ],
         "summary": "Clear pending message group",
-        "responses": { "200": { "description": "Group cleared" } }
+        "responses": {
+          "200": {
+            "description": "Group cleared"
+          }
+        }
+      }
+    },
+    "/v1/chat/attachments/upload": {
+      "post": {
+        "tags": [
+          "Chat"
+        ],
+        "summary": "Upload C-side chat attachment",
+        "description": "Uploads a file for later use in /v1/chat/completions attachments. This endpoint returns media_id and does not replace /v1/media/upload used by the console WebSocket flow.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  },
+                  "session_id": {
+                    "type": "string",
+                    "description": "Optional client session identifier."
+                  },
+                  "agent_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "description": "Optional agent UUID for asset attribution."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Upload result with media_id, filename, MIME type, size, hash, storage, and status"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
       }
     }
   },
@@ -865,28 +2297,80 @@
       "ApiKey": {
         "type": "object",
         "properties": {
-          "id": { "type": "string", "format": "uuid" },
-          "name": { "type": "string" },
-          "prefix": { "type": "string", "description": "First 8 chars for identification" },
-          "scopes": { "type": "array", "items": { "type": "string" } },
-          "expires_at": { "type": "string", "format": "date-time", "nullable": true },
-          "last_used_at": { "type": "string", "format": "date-time", "nullable": true },
-          "revoked": { "type": "boolean" },
-          "created_by": { "type": "string" },
-          "created_at": { "type": "string", "format": "date-time" },
-          "updated_at": { "type": "string", "format": "date-time" }
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "prefix": {
+            "type": "string",
+            "description": "First 8 chars for identification"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "last_used_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "revoked": {
+            "type": "boolean"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
         }
       },
       "AgentInput": {
         "type": "object",
         "properties": {
-          "name": { "type": "string", "description": "Unique agent slug" },
-          "display_name": { "type": "string" },
-          "agent_type": { "type": "string", "enum": ["open", "predefined"] },
-          "description": { "type": "string" },
-          "provider": { "type": "string", "description": "LLM provider name" },
-          "model": { "type": "string", "description": "Model ID" },
-                  "system_prompt": { "type": "string" },
+          "name": {
+            "type": "string",
+            "description": "Unique agent slug"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "agent_type": {
+            "type": "string",
+            "enum": [
+              "open",
+              "predefined"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string",
+            "description": "LLM provider name"
+          },
+          "model": {
+            "type": "string",
+            "description": "Model ID"
+          },
+          "system_prompt": {
+            "type": "string"
+          },
           "other_config": {
             "type": "object",
             "description": "Optional legacy/extensibility bag. Do not nest reasoning or Codex routing here in new writes."
@@ -897,15 +2381,31 @@
             "properties": {
               "override_mode": {
                 "type": "string",
-                "enum": ["inherit", "custom"]
+                "enum": [
+                  "inherit",
+                  "custom"
+                ]
               },
               "effort": {
                 "type": "string",
-                "enum": ["off", "auto", "none", "minimal", "low", "medium", "high", "xhigh"]
+                "enum": [
+                  "off",
+                  "auto",
+                  "none",
+                  "minimal",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh"
+                ]
               },
               "fallback": {
                 "type": "string",
-                "enum": ["downgrade", "off", "provider_default"]
+                "enum": [
+                  "downgrade",
+                  "off",
+                  "provider_default"
+                ]
               }
             }
           },
@@ -913,23 +2413,84 @@
             "type": "object",
             "description": "Optional agent-side routing override for ChatGPT OAuth providers. The main provider field remains the preferred/default account, while provider settings may supply inherited defaults.",
             "properties": {
-              "override_mode": { "type": "string", "enum": ["inherit", "custom"] },
-              "strategy": { "type": "string", "enum": ["round_robin", "priority_order"] },
-              "extra_provider_names": { "type": "array", "items": { "type": "string" } }
+              "override_mode": {
+                "type": "string",
+                "enum": [
+                  "inherit",
+                  "custom"
+                ]
+              },
+              "strategy": {
+                "type": "string",
+                "enum": [
+                  "round_robin",
+                  "priority_order"
+                ]
+              },
+              "extra_provider_names": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
             }
           }
         }
       },
       "ProviderInput": {
         "type": "object",
-        "required": ["name", "provider_type"],
+        "required": [
+          "name",
+          "provider_type"
+        ],
         "properties": {
-          "name": { "type": "string", "description": "Unique provider slug" },
-          "display_name": { "type": "string" },
-          "provider_type": { "type": "string", "enum": ["anthropic_native", "openai_compat", "gemini_native", "openrouter", "groq", "deepseek", "mistral", "xai", "minimax_native", "cohere", "perplexity", "dashscope", "bailian", "chatgpt_oauth", "claude_cli", "yescale", "zai", "zai_coding", "ollama", "ollama_cloud", "acp"] },
-          "api_base": { "type": "string" },
-          "api_key": { "type": "string" },
-          "enabled": { "type": "boolean", "default": true },
+          "name": {
+            "type": "string",
+            "description": "Unique provider slug"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "provider_type": {
+            "type": "string",
+            "enum": [
+              "anthropic_native",
+              "openai_compat",
+              "gemini_native",
+              "openrouter",
+              "groq",
+              "deepseek",
+              "mistral",
+              "xai",
+              "minimax_native",
+              "cohere",
+              "perplexity",
+              "dashscope",
+              "bailian",
+              "chatgpt_oauth",
+              "claude_cli",
+              "yescale",
+              "zai",
+              "zai_coding",
+              "vertex",
+              "ollama",
+              "ollama_cloud",
+              "acp",
+              "novita",
+              "byteplus",
+              "byteplus_coding"
+            ]
+          },
+          "api_base": {
+            "type": "string"
+          },
+          "api_key": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean",
+            "default": true
+          },
           "settings": {
             "type": "object",
             "description": "Provider-specific settings such as provider-owned Codex pool defaults and reasoning defaults.",
@@ -939,11 +2500,24 @@
                 "properties": {
                   "effort": {
                     "type": "string",
-                    "enum": ["off", "auto", "none", "minimal", "low", "medium", "high", "xhigh"]
+                    "enum": [
+                      "off",
+                      "auto",
+                      "none",
+                      "minimal",
+                      "low",
+                      "medium",
+                      "high",
+                      "xhigh"
+                    ]
                   },
                   "fallback": {
                     "type": "string",
-                    "enum": ["downgrade", "off", "provider_default"]
+                    "enum": [
+                      "downgrade",
+                      "off",
+                      "provider_default"
+                    ]
                   }
                 }
               },
@@ -952,11 +2526,16 @@
                 "properties": {
                   "strategy": {
                     "type": "string",
-                    "enum": ["round_robin", "priority_order"]
+                    "enum": [
+                      "round_robin",
+                      "priority_order"
+                    ]
                   },
                   "extra_provider_names": {
                     "type": "array",
-                    "items": { "type": "string" }
+                    "items": {
+                      "type": "string"
+                    }
                   }
                 }
               }
@@ -967,26 +2546,52 @@
       "Error": {
         "type": "object",
         "properties": {
-          "error": { "type": "string" }
+          "error": {
+            "type": "string"
+          }
         }
       }
     },
     "responses": {
       "Unauthorized": {
         "description": "Authentication required or invalid token",
-        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
       },
       "BadRequest": {
         "description": "Invalid request parameters",
-        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
       },
       "NotFound": {
         "description": "Resource not found",
-        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
       },
       "Conflict": {
         "description": "Resource state conflict",
-        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
       }
     }
   }

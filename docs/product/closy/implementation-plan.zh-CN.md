@@ -2,7 +2,71 @@
 
 本文档基于 [Closy PRD](./prd.zh-CN.md) 与当前 GoClaw 技术架构整理，目标是把产品需求转化为可执行的工程实施方案。
 
-结论先行：当前项目不适合直接作为 Closy C 端产品上线，但非常适合作为 Closy 的 Agent Runtime、管理后台和多模态能力底座。推荐采用“GoClaw 内核 + Closy 产品层”的改造方式，而不是重写底层 Agent 系统。
+结论先行：当前项目已经具备 GoClaw Agent Runtime、多模态 Provider 底座和 `lumi` C 端前端雏形，但还不能直接作为 Closy 产品上线。推荐采用“GoClaw 内核 + lumi C 端产品层”的改造方式：不重写底层 Agent 系统，也不新建一套 C 端工程，而是在现有 `lumi` 上完成业务适配。
+
+---
+
+## 实施进展
+
+### 2026-05-22：Vertex 多模态底座接入
+
+- 已新增普通 `vertex` provider，可通过 Vertex AI `generateContent` / `streamGenerateContent` 接入 Gemini 文本、视觉与工具调用链路。
+- 已新增 Vertex OAuth token 获取能力，支持 provider `api_key` 作为 access token，也支持 `GOCLAW_VERTEX_ACCESS_TOKEN`、`GOOGLE_APPLICATION_CREDENTIALS`、`GOOGLE_APPLICATION_CREDENTIALS_JSON` 与本地 `gcloud auth print-access-token`。
+- 已新增 Vertex Gemini Live WebSocket 桥，路由为 `/v1/vertex/live/ws`，并为 Closy 暴露别名 `/v1/closy/live/ws`。
+- Live WS 支持浏览器发送 `audio`、`audio_end`、`activity_start`、`activity_end`、`text`、`close` 事件，后端返回 `live_ready`、`live_setup_complete`、`live_transcript`、`live_audio`、`message`、`done`。
+- 下一步 Phase 1 的 C 端页面可以直接接 `/v1/closy/live/ws` 做实时语音入口；普通图文聊天继续使用 `agent:closy`。
+
+### 2026-05-23：独立 Gemini Live 后端接入
+
+- 为避免影响既有 Live 桥，新增独立后端路由 `GET /v1/gemini/live/ws` 与 `GET /v1/closy/live/gemini/ws`。
+- 新路由参考 `claude-codex` 的 Gemini Flash Live 实现，默认使用 `gemini-live-2.5-flash-preview-native-audio-09-2025`、Vertex `v1beta1` 双向 WebSocket。
+- 新路由支持 `audio`、`audio_end`、`activity_start`、`activity_end`、`text`、`close` 客户端事件，返回 `live_ready`、`live_setup_complete`、`live_transcript`、`live_audio`、`message`、`done`、`error`。
+- 新路由支持可配置 VAD 参数，并把 Mochi agent context files 与最近 live transcript 注入 `systemInstruction`。
+- 新路由会把完成的 live turn 写入现有 session history，便于后续做记忆沉淀；旧 `/v1/vertex/live/ws` 和 `/v1/closy/live/ws` 保持不变。
+- 已同步 `.env.local`、`.env.example` 与 `docs/vertex-provider-live.md`，将 claude-codex 的 Live 配置语义映射为 `GOCLAW_GEMINI_LIVE_*` 配置，不再保留旧命名环境变量。
+
+### 2026-05-22：C 端前端代码基线确认
+
+- 当前仓库已经拆成两个同级工程：`goclaw` 为 Go 后端，`lumi` 为 Closy/Lumi C 端前端。
+- `lumi` 是 Next.js App Router 项目，不是 Vite 项目；页面入口位于 `lumi/src/app`，业务组件位于 `lumi/src/components/app`。
+- 当前 C 端已有首页、聊天、相机、Live、保存穿搭、记忆、个人中心与 onboarding 页面：
+  - `/`：首页，`HomeView`。
+  - `/chat`：聊天页，`ChatView`。
+  - `/camera`：拍照/上传分析页，`CameraView`。
+  - `/live`：语音实时页，`LiveView`。
+  - `/looks`：保存穿搭页，`LooksView`。
+  - `/memory`：记忆页，`MemoryView`。
+  - `/profile`、`/onboarding`：个人与引导页面。
+- 前端 API 入口为 `lumi/src/lib/api/client.ts`。未设置 `NEXT_PUBLIC_API_BASE_URL` 时，大多数能力走 mock；聊天默认通过 Next.js 代理路由 `/api/chat/completions` 调用 GoClaw。
+- 当前聊天链路为：`ChatView -> apiClient.sendMessage -> mock client -> /api/chat/completions -> GoClaw /v1/chat/completions`。
+- `lumi/src/app/api/chat/completions/route.ts` 目前将前端消息转换成 OpenAI Chat Completions 格式，默认调用 `agent:closy`。
+- 当前前端聊天代理已支持 SSE：前端请求 `Accept: text/event-stream` 时，上游使用 `stream:true`，`ChatView` 会按 `assistant_delta` 增量渲染。
+- `/live` 当前主要是麦克风权限与 UI 状态模拟，尚未接入 `/v1/closy/live/ws`。
+- `/camera` 当前使用本地 file input / capture 预览和 mock 分析，尚未上传到 GoClaw 媒体存储或调用真实视觉链路。
+- `/memory` 当前展示 mock 的风格画像、偏好和 recent looks，尚未读取 GoClaw memory/KG 或 Closy 领域表。
+
+### 2026-05-22：Phase 1 身份统一启动
+
+- 后端调用 key / model key 保持 `agent:closy`，避免破坏现有 `/v1/chat/completions` 请求。
+- 用户可见角色名修正为 `Mochi`：当前数据库中 `agents.display_name`、`frontmatter`、`agent_description` 已同步。
+- 当前数据库中的 `IDENTITY.md`、`SOUL.md`、`AGENTS.md`、`USER_PREDEFINED.md` 等 agent context files 已统一到 Mochi 角色语义。
+- 后端 seed 源码 `internal/closy/seed.go` 已同步为 `DisplayName = "Mochi"`，后续新环境默认也会创建 Mochi 展示名。
+- `lumi` 前端中的用户可见 `Closy` 文案已改为 `Mochi`，chat proxy 默认 model 已从 `agent:fox-spirit` 改为 `agent:closy`。
+
+### 2026-05-22：Phase 1 聊天流式代理接入
+
+- `lumi` 的 `/api/chat/completions` 在前端请求 `Accept: text/event-stream` 时，会以 `stream:true` 请求 GoClaw `/v1/chat/completions`。
+- Next.js chat proxy 会把 GoClaw OpenAI-compatible SSE chunk 转换成前端事件：`assistant_start`、`assistant_delta`、`done`、`error`。
+- `ChatView` 现在会先插入 Mochi 占位消息，再按 `assistant_delta` 增量更新内容，最终用 `done.result` 替换为完整消息。
+- 旧 JSON 响应路径保留：未请求 SSE 时仍返回原来的 `{ userMessage, assistantMessage }`。
+
+### 2026-05-22：Phase 1 C 端附件上传后端链路
+
+- 已新增 C 端专用上传接口 `POST /v1/chat/attachments/upload`，返回可在聊天请求中复用的 `media_id`。
+- 已新增 `media_assets` 表记录附件元数据，当前使用本地 `media.Store` 保存文件，预留 `storage_backend` / `bucket` / `key` 以便后续切换对象存储。
+- `/v1/chat/completions` 已支持 `attachments: [{ "media_id": "..." }]`，运行 Agent 时会把附件转换为 `RunRequest.Media` 并把媒体标签注入最后一条用户消息。
+- C 端 chat 附件中的图片会强制 inline 到当前 agent 主模型，适配 `shortapi / openai/gpt-5.4` 这类支持多模态的 OpenAI-compatible 模型；全局 `read_image` 工具配置保持不变。
+- 控制台原有 `/v1/media/upload` 不变，避免影响 WebSocket 控制台聊天和旧媒体流程。
 
 ---
 
@@ -97,10 +161,10 @@ flowchart TD
 
 | 层级 | 职责 | 当前项目复用情况 |
 | --- | --- | --- |
-| Closy C 端 | 消费级聊天、拍照、自拍、语音、分享、记忆展示 | 需要新增 |
+| Closy C 端 | 消费级聊天、拍照、自拍、语音、分享、记忆展示 | 已有 `lumi` Next.js MVP，需从 mock 改为真实后端 |
 | Closy Product API | 用户态 API、场景入口、领域数据、埋点 | 需要新增 |
 | GoClaw Agent Runtime | Agent loop、工具调用、Provider、会话、记忆注入 | 直接复用 |
-| 多模态工具层 | 图片理解、音频理解、TTS、媒体存储 | 复用并增强体验 |
+| 多模态工具层 | 图片理解、音频理解、TTS、媒体存储 | 已有 `read_image`、`read_audio`、`tts`，并新增 Vertex/Live 底座 |
 | 领域记忆层 | 风格画像、look 记录、偏好、状态线索 | 需要新增 |
 | 管理后台 | Agent/Provider/TTS/Memory/Usage 配置 | 复用现有 UI |
 
@@ -345,6 +409,40 @@ UNIQUE (tenant_id, user_id, agent_id)
 
 ## 6. API 设计
 
+### 6.0 当前 API 基线
+
+当前 GoClaw 已存在并可复用的接口：
+
+| 接口 | 状态 | Closy 用法 |
+| --- | --- | --- |
+| `POST /v1/chat/completions` | 已实现 | 普通图文聊天，模型使用 `agent:closy` |
+| `POST /v1/chat/attachments/upload` | 已实现 | C 端聊天附件上传，返回 `media_id` 给 `/v1/chat/completions.attachments` 使用 |
+| `POST /v1/responses` | 已实现 | 可作为后续更结构化的 Agent 调用入口 |
+| `GET /v1/closy/live/ws` | 已实现 | Vertex Gemini Live WebSocket 别名 |
+| `GET /v1/vertex/live/ws` | 已实现 | 通用 Vertex Live WebSocket |
+| `GET /v1/closy/live/gemini/ws` | 已实现 | 新增独立 Gemini Live 路由，不替换旧 Live |
+| `GET /v1/gemini/live/ws` | 已实现 | 通用独立 Gemini Live 路由 |
+| `POST /v1/tools/invoke` | 已实现 | 调用工具，非 C 端首选 |
+| 媒体上传/文件服务 | 已有底层能力 | C 端先走专用 upload + media_assets，控制台继续走旧 `/v1/media/upload` |
+
+当前 `lumi` 前端已经有 Next.js 代理：
+
+```http
+POST /api/chat/completions
+```
+
+该代理会请求 GoClaw：
+
+```http
+POST /v1/chat/completions
+```
+
+短期实施策略：
+
+1. Phase 1 先复用 `/v1/chat/completions` + `agent:closy`，让 C 端聊天和图片入口跑通。
+2. `/api/chat/completions` 继续作为前端 BFF，负责隐藏 gateway token、补齐 `X-GoClaw-User-Id` / `X-GoClaw-Tenant-Id`。
+3. Closy 专用 `/v1/closy/*` API 作为领域层逐步新增，不阻塞 C 端第一阶段验证。
+
 ### 6.1 Closy 消息发送
 
 ```http
@@ -380,6 +478,8 @@ POST /v1/closy/messages
 
 说明：
 
+- 该接口为目标态 Closy Product API；当前尚未实现。
+- Phase 1 可以先由 `lumi/src/app/api/chat/completions/route.ts` 代理到 `/v1/chat/completions`。
 - 内部仍调用现有 Agent Runtime。
 - `scenario` 用于构造 Closy 场景 prompt。
 - 支持 SSE 或 WebSocket 复用现有 streaming。
@@ -387,34 +487,38 @@ POST /v1/closy/messages
 ### 6.2 媒体上传
 
 ```http
-POST /v1/closy/media
+POST /v1/chat/attachments/upload
 ```
 
 请求：
 
 ```http
 Content-Type: multipart/form-data
-file=<image/audio/video>
-kind=image
-source=camera
+file=<image/audio/video/document>
+session_id=<optional c-side session id>
+agent_id=<optional agent uuid>
 ```
 
 响应：
 
 ```json
 {
-  "media_id": "m_123",
-  "kind": "image",
+  "media_id": "019e4fb1-169c-7e77-9f22-b311bc729410",
+  "filename": "selfie.jpg",
   "mime_type": "image/jpeg",
-  "url": "/v1/media/m_123",
-  "filename": "selfie.jpg"
+  "size": 123456,
+  "sha256": "abc123",
+  "storage": "local",
+  "status": "ready"
 }
 ```
 
 说明：
 
-- 可先复用 `/v1/media/upload`，MVP 后再封装 Closy 专用接口。
-- Closy 专用接口更适合记录 `source=camera/selfie/gallery/voice`。
+- 该接口专供 C 端聊天链路使用，不替换控制台已有 `/v1/media/upload`。
+- 上传成功后，C 端在 `/v1/chat/completions` 请求中传 `attachments: [{ "media_id": "..." }]`。
+- 当前文件落本地 `media.Store`，元数据进入 `media_assets`。C 端聊天图片默认 inline 给当前主模型；后续对象存储接入时保持 `media_id` API 不变，只切换 `storage_backend` / `storage_bucket` / `storage_key` 的写入与读取实现。
+- 目标态 `/v1/closy/media` 仍可作为领域 API 增量封装，用于补充 `source=camera/selfie/gallery/voice`、look 归档和埋点。
 
 ### 6.3 获取 Closy 用户画像
 
@@ -492,136 +596,267 @@ GET /s/{token}
 - 站外用户点击分享卡后进入 Closy 场景落地页。
 - 页面展示角色、卡片内容和 CTA：发穿搭图、现在自拍、给我发语音。
 
+### 6.7 Closy Live WebSocket
+
+当前已实现：
+
+```http
+GET /v1/closy/live/ws
+```
+
+鉴权：
+
+- `Authorization: Bearer <GOCLAW_GATEWAY_TOKEN>`
+- 或 query 参数 `?token=<GOCLAW_GATEWAY_TOKEN>`。
+
+可选 query：
+
+```text
+model=gemini-live-2.5-flash-native-audio
+project_id=<google cloud project>
+location=us-central1
+input_mime=audio/pcm;rate=16000
+output_mime=<可选>
+input_transcription=true
+output_transcription=true
+timeout=10m
+```
+
+前端发送事件：
+
+```json
+{ "type": "audio", "mime_type": "audio/pcm;rate=16000", "data": "<base64>" }
+```
+
+```json
+{ "type": "audio_end" }
+```
+
+```json
+{ "type": "text", "content": "帮我判断今天这套状态" }
+```
+
+```json
+{ "type": "close" }
+```
+
+后端返回事件：
+
+```json
+{ "type": "live_ready", "data": { "model": "gemini-live-2.5-flash-native-audio" } }
+```
+
+```json
+{ "type": "live_setup_complete" }
+```
+
+```json
+{ "type": "live_transcript", "role": "user", "content": "..." }
+```
+
+```json
+{ "type": "live_audio", "data": { "mime_type": "...", "data": "<base64>" } }
+```
+
+```json
+{ "type": "message", "role": "assistant", "content": "..." }
+```
+
+```json
+{ "type": "done" }
+```
+
+注意：
+
+- 当前 Live WS 是 Vertex Live 桥，不经过普通 `agent:closy` loop；它解决低延迟语音体验，但不会天然写入 GoClaw session/memory。
+- 若产品需要 Live 会话沉淀记忆，需要新增 Live transcript 落库和 post-turn 抽取。
+
 ---
 
 ## 7. 前端实施方案
 
-### 7.1 路由设计
+### 7.1 当前前端工程基线
 
-建议新增 C 端路由，不混入现有管理后台主导航：
-
-```text
-/closy
-/closy/chat/:sessionKey?
-/closy/memory
-/closy/me
-/closy/camera
-/closy/share/:token
-/s/:token
-```
-
-### 7.2 页面清单
-
-#### 页面 1：Closy 聊天主页
-
-职责：
-
-- 作为默认首页。
-- 展示角色头像、状态文案、最近上下文卡片。
-- 提供 8 个快捷入口：
-  - 发穿搭图
-  - 现在自拍给你看
-  - 帮我选一套
-  - 这件值不值得买
-  - 我想聊聊
-  - 给你发条语音
-  - 我今天不知道想成为什么感觉
-  - 你觉得我最近适合什么状态
-
-改造点：
-
-- 可复用现有 `ChatThread`、`ChatInput`、WebSocket chat hooks。
-- 需要新增 Closy 风格首页壳，不使用现有管理后台布局。
-- 快捷入口会自动填充 `scenario` 和 prompt。
-
-#### 页面 2：相机/自拍入口
-
-职责：
-
-- 调用浏览器 `getUserMedia` 或移动端 file capture。
-- 支持前后摄像头切换。
-- 拍摄后直接进入会话。
-
-MVP 实现路径：
-
-```html
-<input type="file" accept="image/*" capture="environment">
-<input type="file" accept="image/*" capture="user">
-```
-
-后续增强：
-
-- 自定义相机预览。
-- 连拍和二选一。
-- 图片裁剪与压缩。
-
-#### 页面 3：Closy 记得你
-
-职责：
-
-- 展示风格画像。
-- 展示最近聊过的 look。
-- 展示已记住偏好。
-- 展示最近状态关键词。
-- 允许用户删除或纠正记忆。
-
-数据来源：
-
-- `closy_profiles`
-- `closy_style_preferences`
-- `closy_looks`
-- 现有 memory/KG 可作为补充。
-
-#### 页面 4：分享卡片页
-
-职责：
-
-- 从某条 Closy 回复生成分享卡。
-- 支持保存图片或复制链接。
-- MVP 可以先实现网页卡片 + 浏览器截图/下载。
-
-卡片类型：
-
-- 穿搭点评卡。
-- 二选一站队卡。
-- 买前决策卡。
-- 关系金句卡。
-
-#### 页面 5：外部落地页
-
-职责：
-
-- 站外访问，无需登录即可查看分享卡摘要。
-- 强 CTA 引导首次互动。
-- 登录或匿名试用后进入 Closy。
-
-注意：
-
-- 不落到用户帖子页。
-- 不暴露用户隐私。
-- 分享 token 需要可撤销或可过期。
-
-### 7.3 前端组件新增
-
-建议新增：
+当前 C 端前端已经存在，不再从 `ui/web` 管理后台内新增页面。后续改造目标是继续使用 `lumi` 工程作为 Closy C 端主应用。
 
 ```text
-ui/web/src/pages/closy/
-ui/web/src/pages/closy/closy-home-page.tsx
-ui/web/src/pages/closy/closy-chat-page.tsx
-ui/web/src/pages/closy/closy-camera-page.tsx
-ui/web/src/pages/closy/closy-memory-page.tsx
-ui/web/src/pages/closy/closy-share-page.tsx
-ui/web/src/pages/closy/closy-landing-page.tsx
-ui/web/src/pages/closy/hooks/use-closy-chat.ts
-ui/web/src/pages/closy/hooks/use-closy-profile.ts
-ui/web/src/pages/closy/hooks/use-closy-events.ts
-ui/web/src/pages/closy/components/closy-quick-actions.tsx
-ui/web/src/pages/closy/components/closy-context-card.tsx
-ui/web/src/pages/closy/components/closy-camera-input.tsx
-ui/web/src/pages/closy/components/closy-voice-input.tsx
-ui/web/src/pages/closy/components/closy-share-card.tsx
+lumi/
+  src/app/                         Next.js App Router 页面入口
+  src/components/app/              C 端业务视图组件
+  src/components/ui/               通用 UI 组件
+  src/lib/api/                     API 适配层
+  src/lib/store/use-lumi-store.ts  Zustand 本地状态
+  src/lib/data/mochi.ts            当前角色和 mock 种子数据
+  src/types/lumi.ts                前端领域类型
 ```
+
+当前技术栈：
+
+- Next.js 16 App Router。
+- React 19。
+- TanStack React Query 管理服务端状态。
+- Zustand 管理少量本地状态。
+- Tailwind CSS v4。
+- lucide-react 图标。
+- Framer Motion 动效。
+- Vitest + Playwright 测试。
+
+### 7.2 当前路由与改造方向
+
+当前 `lumi` 已有路由：
+
+```text
+/             首页
+/chat         文本聊天
+/camera       拍照/上传图片
+/live         语音实时页
+/looks        保存穿搭
+/memory       记忆展示
+/profile      个人中心
+/onboarding   引导页
+```
+
+短期不再新增 `/closy/*` 路由组，避免重复建设。MVP 以 `lumi` 现有路由为 C 端正式路由。后端 agent key 保持 `closy`，用户侧角色名统一为 `Mochi`：
+
+| 当前路由 | 当前状态 | Phase 1 改造目标 |
+| --- | --- | --- |
+| `/` | 已有角色首页和 mock 数据 | 改为 Mochi 首页，突出穿搭图、自拍、语音、状态入口 |
+| `/chat` | 已有聊天 UI，可通过 Next proxy 调 GoClaw | 改为 `agent:closy`，补 scenario、媒体、流式渲染 |
+| `/camera` | 已有 file input/capture 与本地预览 | 接 GoClaw 媒体上传和视觉分析链路 |
+| `/live` | 已有麦克风权限和模拟状态 | 接 `/v1/closy/live/ws` |
+| `/looks` | mock 保存穿搭 | 接 `closy_looks` 或最小 API |
+| `/memory` | mock 画像/偏好 | 接 `closy_profiles`、`closy_style_preferences`、memory/KG |
+| `/profile` | 静态个人页 | 增加隐私、记忆、语音偏好设置 |
+
+后续如果需要和管理后台共存于同一域名，可再加 `/closy` 前缀或部署层 rewrite；当前实施阶段不把路由重构作为优先任务。
+
+### 7.3 当前 API 适配层
+
+前端统一通过 `createLumiApiClient()` 获取 API client：
+
+```text
+src/lib/api/client.ts
+src/lib/api/mock.ts
+src/lib/api/http.ts
+src/lib/api/go-claw-chat.ts
+src/app/api/chat/completions/route.ts
+```
+
+当前行为：
+
+- 设置 `NEXT_PUBLIC_API_BASE_URL` 时，走 `http.ts` 中定义的业务后端接口。
+- 未设置 `NEXT_PUBLIC_API_BASE_URL` 时，走 `mock.ts`。
+- mock 模式下，聊天默认仍会调用 `/api/chat/completions`。
+- `/api/chat/completions` 是 Next.js server route，负责把 Lumi 的 `ChatMessage` 历史转换为 OpenAI-compatible messages，再请求 GoClaw `/v1/chat/completions`。
+
+当前需要修正：
+
+1. `.env.example` 和代理路由默认值统一为 `agent:closy`。
+2. `ChatRole` 中的 `mochi` 可保留为用户侧角色名，后续如需要更通用数据层再迁移为 `assistant`。
+3. `MochiConversation.agentId` 需要改为 `closy` 或更通用的 `AgentConversation`。
+4. `src/lib/data/mochi.ts` 保留为角色数据源；如果未来产品名和角色名分离，再拆成 product/agent 两层数据。
+5. `/api/chat/completions` 当前 `stream: false`，如果要实现真正 SSE，需要改造为：
+   - 上游请求 `stream: true`。
+   - Next route 返回 `text/event-stream` 或 Web Streams。
+   - 前端 `sendMessage` 支持增量更新 assistant message。
+
+### 7.4 页面改造清单
+
+#### 首页 `/`
+
+当前：`HomeView` 展示 Mochi 在线、三个入口、今日 prompt、角色 traits、隐私提示和 latest look。
+
+改造目标：
+
+- 首屏角色统一为 Mochi。
+- 三个主入口保留，但文案改为“发穿搭图 / 语音聊聊 / 自拍看看”。
+- 增加场景快捷入口：
+  - 这套今天能出门吗。
+  - 帮我二选一。
+  - 这件值不值得买。
+  - 我今天想显得什么状态。
+- 首屏显示最近记忆卡片：偏好色、最近 look、最近状态关键词。
+
+#### 聊天页 `/chat`
+
+当前：`ChatView` 已有消息列表、输入框、图片附件按钮、麦克风按钮、乐观更新、失败重试。
+
+改造目标：
+
+- 默认模型改为 `agent:closy`。
+- 请求中增加 `scenario`、`media`、`reply_mode` 等 Closy 上下文。
+- 图片附件不再只是 `attachment://filename`，而是先上传媒体并拿到 `media_id`。
+- 支持真正 SSE 流式渲染：pending assistant message 随 chunk 增量更新。
+- 将 voice 按钮拆成两种模式：
+  - MVP：长按/点击录音 -> 上传音频 -> 普通 chat。
+  - Live：进入 `/live` 的实时 WebSocket 模式。
+- 增加从 assistant message 生成分享卡的入口。
+
+#### 相机页 `/camera`
+
+当前：`CameraView` 已有 file input、移动端 `capture="environment"`、预览和 mock 分析。
+
+改造目标：
+
+- 保留 `<input type="file" accept="image/*" capture="environment">` 作为 MVP 方案。
+- 增加自拍入口：`capture="user"`。
+- 图片选择后压缩并上传到 GoClaw media。
+- 触发 Closy 场景：`outfit_review`、`selfie_review`、`purchase`、`compare`。
+- 分析完成后可保存到 `/looks`，并沉淀到 `closy_looks`。
+
+#### Live 页 `/live`
+
+当前：`LiveView` 只做麦克风权限、状态动画和模拟状态流转。
+
+改造目标：
+
+- 建立浏览器 WebSocket 到 `/v1/closy/live/ws`。
+- 采集麦克风 PCM 或可被后端接受的音频片段，按 `audio` 事件发送 base64。
+- 处理后端事件：
+  - `live_ready`
+  - `live_setup_complete`
+  - `live_transcript`
+  - `live_audio`
+  - `message`
+  - `done`
+  - `error`
+- 支持断开、重连、打断和静音状态。
+- 将 transcript 和 assistant message 选择性写入普通会话历史。
+
+#### 记忆页 `/memory`
+
+当前：`MemoryView` 展示 mock 的 style profile、recent look、avoid notes、state keywords。
+
+改造目标：
+
+- 数据来源改为 `GET /v1/closy/profile`。
+- 展示 `style_summary`、`self_expression_summary`、`social_presentation_summary`、`current_state_summary`。
+- 展示结构化 preference 列表，并支持删除/纠正。
+- 展示 recent looks。
+- 标注哪些记忆来自用户明确表达，哪些来自 Closy 推断。
+
+#### 保存穿搭 `/looks`
+
+当前：`LooksView` 使用 mock seed looks，可本地切换 private/public、生成假 share link。
+
+改造目标：
+
+- 数据来源改为 `GET /v1/closy/looks` 或 `GET /v1/closy/profile` 内的 `recent_looks`。
+- 支持保存、删除、公开/私密切换。
+- 分享 link 调用 `POST /v1/closy/share-cards`。
+
+### 7.5 前端代码整理任务
+
+为了避免角色名和后端 key 混用，Phase 1 需要先做一次语义清理：
+
+```text
+后端 model key                         -> agent:closy
+用户可见角色名                         -> Mochi
+ChatRole: "mochi"                      -> 当前保留，表示用户侧角色身份
+HomeView/ChatView/Memory/Profile 文案   -> Mochi 文案
+```
+
+注意：这次清理只改 C 端语义，不重构 UI 结构，不引入新的前端状态库，不改变 Next.js 工程形态。
 
 ---
 
@@ -629,7 +864,7 @@ ui/web/src/pages/closy/components/closy-share-card.tsx
 
 ### 8.1 Closy Handler
 
-新增 HTTP handler：
+目标态新增 HTTP handler：
 
 ```text
 internal/http/closy.go
@@ -639,7 +874,15 @@ internal/http/closy_share.go
 internal/http/closy_events.go
 ```
 
-注册路由：
+当前状态：
+
+- 尚未新增完整 `internal/http/closy*.go` 领域 handler。
+- 已新增 `internal/http/vertex_live.go`，并注册：
+  - `GET /v1/vertex/live/ws`
+  - `GET /v1/closy/live/ws`
+- 普通 C 端聊天当前复用 `POST /v1/chat/completions`。
+
+目标态注册路由：
 
 ```go
 mux.HandleFunc("POST /v1/closy/messages", h.auth(h.handleSendMessage))
@@ -652,6 +895,13 @@ mux.HandleFunc("GET /v1/closy/share-cards/{id}", h.auth(h.handleGetShareCard))
 mux.HandleFunc("POST /v1/closy/events", h.auth(h.handleTrackEvent))
 mux.HandleFunc("GET /s/{token}", h.handlePublicShareLanding)
 ```
+
+实施顺序建议：
+
+1. 先保留 `/v1/chat/completions` 作为聊天主入口。
+2. 新增 `/v1/closy/profile` 和 `/v1/closy/events`，让 `lumi` 的 `/memory` 与埋点先脱离 mock。
+3. 再新增 `/v1/closy/media`、`/v1/closy/looks`、`/v1/closy/share-cards`。
+4. 最后根据需要把 `/api/chat/completions` 迁移到 `/v1/closy/messages`。
 
 ### 8.2 Closy Store
 
@@ -768,22 +1018,42 @@ MVP 可以先用 LLM extraction；后续再加规则兜底。
 
 ### 8.5 Closy Agent 初始化
 
-新增 seed 或 setup：
+当前已实现 seed：
 
 ```text
-cmd/setup_closy.go
 internal/closy/seed.go
 ```
 
-创建默认 agent：
+当前 gateway 启动时会调用 `closy.EnsureSeed`：
+
+- 固定 `agent_key = "closy"`。
+- `display_name = "Mochi"`。
+- `agent_type = predefined`。
+- `memory_config.enabled = true`。
+- `tools_config.alsoAllow` 包含 `read_image`、`read_audio`、`memory_search`、`memory_get`、`memory_expand`、`tts`。
+- 自动写入 `SOUL.md`、`IDENTITY.md`、`CAPABILITIES.md`、`AGENTS.md` 等 agent context files。
+- workspace 目录为 `<workspaceRoot>/closy`。
+- `other_config.seed` 写入 Mochi seed manifest，包含 `version`、整体 `checksum` 和每个 context file 的 checksum。
+
+目标态默认 agent：
 
 ```json
 {
   "agent_key": "closy",
-  "display_name": "Closy",
+  "display_name": "Mochi",
   "agent_type": "predefined",
   "memory_config": {
     "enabled": true
+  },
+  "other_config": {
+    "product": "closy",
+    "prompt_mode": "full",
+    "seed": {
+      "agent_key": "closy",
+      "display_name": "Mochi",
+      "version": "2026-05-22.1",
+      "checksum": "sha256:..."
+    }
   },
   "tools_config": {
     "read_image": true,
@@ -804,6 +1074,20 @@ System prompt 重点：
 - 状态陪伴不鸡汤、不诊断心理疾病。
 - 主动引用记忆时要自然克制。
 - 可生成适合分享的一句话。
+
+Seed 幂等与迁移规则：
+
+- 首次初始化：创建 `agent_key = "closy"` 的 Mochi agent，写入当前代码内置的 `IDENTITY.md`、`SOUL.md` 等 context files，并记录 seed manifest。
+- 重复初始化：如果 agent 与 context files 已存在且内容等于当前 seed，不写入任何 context file，不刷新 agent。
+- 缺失补齐：如果某个 seed 管理的 context file 缺失或为空，只补齐该文件。
+- 用户修改保护：如果 `IDENTITY.md`、`SOUL.md` 或其它 context file 已存在且内容不等于当前 seed，同时也不匹配上一版 manifest checksum，视为运营/本地手动修改，seed 不覆盖。
+- 版本升级：如果上一版 manifest 证明某个文件仍是上一版 seed 的原始内容，则默认迁移到当前 seed；传入 `SeedOptions.SkipSeedMigrations = true` 时只检测不迁移，并保留旧 manifest，方便后续显式升级。
+- 线上迁移：当前本地 Mochi 角色形态以代码内置 context files + `other_config.seed` manifest 为基线；迁移线上时应优先使用 agent export/import 携带完整 agent row、context files、provider/model 配置，再由 seed 补齐缺失项，不依赖 seed 覆盖线上已有人工调整。
+
+后续待补：
+
+- 提供显式 CLI/API：重新初始化 Closy、只补缺失 context file、不覆盖运营手动修改。
+- 把 `lumi` 默认环境变量和 OpenAPI 示例统一改为 `agent:closy`。
 
 ---
 
@@ -833,7 +1117,7 @@ sequenceDiagram
 
 ### 9.2 语音链路
 
-MVP：
+MVP 低风险链路：
 
 ```mermaid
 sequenceDiagram
@@ -856,6 +1140,31 @@ sequenceDiagram
       T-->>FE: audio url
     end
 ```
+
+当前已具备的实时链路：
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant FE as Lumi / Closy Frontend
+    participant WS as /v1/closy/live/ws
+    participant V as Vertex Gemini Live
+
+    U->>FE: 开始实时语音
+    FE->>WS: WebSocket connect
+    WS->>V: Connect Live API
+    WS-->>FE: live_ready / live_setup_complete
+    FE->>WS: audio chunks
+    WS->>V: realtimeInput.audio
+    V-->>WS: transcript / audio / message
+    WS-->>FE: live_transcript / live_audio / message
+```
+
+实施取舍：
+
+- Phase 1 可以先实现 `/live` 到 `/v1/closy/live/ws` 的实时语音体验。
+- 因 Live WS 当前不进入 `agent:closy` loop，Phase 1 不把 Live transcript 自动写入长期记忆。
+- Phase 2/3 再补 transcript 保存、摘要、记忆抽取和普通 chat history 合并。
 
 后续增强：
 
@@ -938,39 +1247,55 @@ sequenceDiagram
 
 ### Phase 0：基础确认与项目切分
 
+状态：已完成基础 seed、Vertex provider、Vertex Live WS 与 C 端前端基线确认（2026-05-22）。详见 [Phase 0 技术 Spike 记录](./phase-0-spike.zh-CN.md)。
+
 目标：
 
 - 固定 Closy agent。
 - 确认 vision/audio/TTS provider 可用。
-- 确认现有 WebSocket chat 链路可复用。
+- 确认现有 `/v1/chat/completions` 和 `/v1/closy/live/ws` 可复用。
+- 明确 C 端前端使用 `lumi` 工程继续演进。
 
 交付：
 
-- `closy` agent seed。
-- 本地可用图片点评 demo。
-- 本地可用语音输入 demo。
-- 技术 Spike 记录。
+- `closy` agent seed：已新增 `internal/closy` 并接入 gateway 启动流程。
+- 本地可用图片点评 demo：已自动启用 `read_image` 并写入默认 provider chain；实际效果取决于本地 provider 是否支持视觉输入。
+- 本地可用语音输入 demo：已自动启用 `read_audio` 并写入默认 provider chain；实际效果取决于本地 provider 是否支持音频输入。
+- Vertex provider：已新增 `internal/providers/vertex.go`。
+- Vertex Live WS：已新增 `internal/http/vertex_live.go`，并暴露 `/v1/closy/live/ws`。
+- Vertex 配置文档与本地启动示例：已新增 [`docs/vertex-provider-live.md`](../../vertex-provider-live.md)，覆盖 provider settings、鉴权方式、Live WS query/env、常见错误排查。
+- C 端前端基线：已确认 `lumi` Next.js 项目、当前路由、mock/API 适配层和聊天代理链路。
+- 技术 Spike 记录：已新增 `docs/product/closy/phase-0-spike.zh-CN.md`。
 
 验收：
 
 - 上传一张穿搭图，Closy 能基于图片给出点评。
 - 上传一段语音，Closy 能理解语音内容并回复。
+- `lumi` 可本地启动，并能通过 `/api/chat/completions` 请求 GoClaw。
+- `/v1/closy/live/ws` 能完成 WebSocket 鉴权、连接 Vertex Live 并返回 ready/setup 事件。
 
 ### Phase 1：C 端聊天主页与视觉入口
 
+状态：进行中。当前已有 `lumi` 页面骨架，Mochi 身份、`agent:closy` 默认模型、聊天 SSE 代理、Mochi seed version/checksum 迁移保护、C 端附件上传接口和 `/v1/chat/completions.attachments` 后端链路已完成第一轮改造；前端真实上传接入、scenario/media UI 和真实视觉入口仍待改造。
+
 目标：
 
-- 实现 Closy 首页。
-- 实现相册/拍照/自拍入口。
-- 实现场景快捷按钮。
+- 将 `lumi` 从早期 MVP mock 语义切换为 Mochi 角色体验。
+- 跑通 C 端文本聊天到 `agent:closy`。
+- 跑通相册/拍照/自拍入口到真实媒体链路或最小可用代理。
+- 实现场景快捷按钮和 scenario 传递。
+- 修正聊天为真正 SSE 流式渲染。
 
 交付：
 
-- `/closy` 页面。
-- `/closy/chat/:sessionKey?`。
-- `/closy/camera` 或内嵌相机组件。
-- `POST /v1/closy/messages` 最小可用。
-- `POST /v1/closy/media` 可先包装现有上传接口。
+- `lumi/src/lib/data/mochi.ts` 保留为 Mochi 角色数据源。
+- 用户可见 `Closy` 文案统一为 `Mochi`。
+- `.env.example`、Next chat proxy 默认值和 Apifox 示例统一为 `agent:closy`。
+- `/` 首页改为 Mochi 首页，保留现有 `HomeView` 结构但更新入口和文案。
+- `/chat` 使用 `agent:closy`，支持 scenario，支持失败重试。
+- `/camera` 支持自拍/后摄、图片压缩、上传或临时 data URL，发送到 Closy 场景。
+- `/api/chat/completions` 返回 SSE，`ChatView` 增量渲染 assistant message。
+- 后端提供 `POST /v1/chat/attachments/upload`，并支持 `/v1/chat/completions.attachments[].media_id`。
 
 验收：
 
@@ -978,21 +1303,28 @@ sequenceDiagram
 - 用户可以从首页直接自拍。
 - 图片提交后进入会话回复。
 - 二选一场景能明确站队。
+- 文案和类型中不再出现面向用户的 Mochi 残留。
+- Apifox 用 `agent:closy` 示例请求能成功返回。
 
 ### Phase 2：领域记忆与“Closy 记得你”
+
+状态：待开发。当前 `/memory` 为 mock 展示。
 
 目标：
 
 - 新增 Closy 领域表。
 - 实现 post-turn 抽取。
-- 实现“Closy 记得你”页面。
+- 将 `/memory` 改为读取真实 Closy profile/preferences/recent looks。
 
 交付：
 
 - Closy migration。
 - `ClosyStore` PG/SQLite 实现。
 - profile/preferences/look/decision 抽取。
-- `/closy/memory` 页面。
+- `GET /v1/closy/profile`。
+- `PATCH /v1/closy/profile/preferences/{id}`。
+- `DELETE /v1/closy/profile/preferences/{id}`。
+- `/memory` 页面接真实 API。
 
 验收：
 
@@ -1003,18 +1335,24 @@ sequenceDiagram
 
 ### Phase 3：语音主交互增强
 
+状态：待开发。后端 Live WS 已有，前端 `/live` 尚未接入。
+
 目标：
 
-- 优化语音录制、上传、转写、回复展示。
-- 支持可选语音回复。
-- 保存用户语音偏好。
+- 将 `/live` 接入 `/v1/closy/live/ws`。
+- 优化语音录制、转写、回复展示和可选语音回复。
+- 保存用户语音偏好与 Live transcript。
 
 交付：
 
+- `/live` WebSocket client。
+- 浏览器音频采集、编码和 base64 分片发送。
+- 后端 `live_transcript`、`live_audio`、`message` 事件的前端处理。
 - Closy 语音输入 UI。
 - 转写显示或隐藏策略。
 - TTS 生成接口接入会话。
 - 语音回复播放器。
+- Live transcript 保存与 post-turn 抽取。
 
 验收：
 
@@ -1022,6 +1360,7 @@ sequenceDiagram
 - Closy 能结合语音和图片理解上下文。
 - 用户可播放 Closy 语音回复。
 - 语音场景回复更口语化。
+- 用户可进入 Live 页实时说话，并收到 transcript / audio / message 反馈。
 
 ### Phase 4：分享卡与外部落地页
 
@@ -1091,6 +1430,9 @@ sequenceDiagram
 - 用户删除记忆后后续对话不再引用。
 - 关键接口有单元测试或 handler 测试。
 - 前端核心流程有组件测试或 E2E 冒烟测试。
+- `lumi` 前端不再依赖 mock 才能完成核心聊天、拍照、记忆查看流程。
+- `/api/chat/completions` 与 GoClaw `/v1/chat/completions` 的流式/非流式行为在文档、测试和 Apifox 示例中保持一致。
+- `/live` 可连接 `/v1/closy/live/ws`，并能正确处理鉴权失败、网络断开和 Vertex upstream 错误。
 
 ### 13.3 产品指标验收
 
@@ -1120,10 +1462,13 @@ sequenceDiagram
 新增测试：
 
 - 快捷入口生成正确 scenario。
-- 图片上传后调用正确 API。
+- 图片上传后调用正确 API 或 Next proxy。
 - 语音录制结束后生成音频文件。
 - 记忆页展示 profile/preferences。
 - 分享卡生成按钮状态。
+- `go-claw-chat` adapter 能解析非流式 chat completion 和 SSE chunk。
+- `ChatView` 在流式模式下能够增量更新 assistant message。
+- `/live` WebSocket client 能处理 `live_ready`、`live_transcript`、`live_audio`、`message`、`error`。
 
 ### 14.3 E2E 冒烟
 
@@ -1190,26 +1535,29 @@ sequenceDiagram
 
 ### 后端任务
 
-1. 新增 Closy migration。
-2. 新增 ClosyStore interface 与 PG/SQLite 实现。
-3. 新增 Closy API handler。
-4. 新增 Closy prompt builder。
-5. 新增 Closy post-turn extractor。
-6. 新增 share token 逻辑。
-7. 新增 product event tracking。
-8. 增加后端测试。
+1. 已完成：保持 `internal/closy/seed.go` 的幂等性，并补 seed 版本/迁移策略。
+2. 已完成：补齐 Vertex provider 和 Vertex Live 的配置文档、错误提示和本地启动示例。
+3. 新增 Closy migration。
+4. 新增 ClosyStore interface 与 PG/SQLite 实现。
+5. 新增 Closy API handler：profile/events/looks/share-cards 优先。
+6. 新增 Closy prompt builder，用于 scenario 增强。
+7. 新增 Closy post-turn extractor。
+8. 新增 share token 逻辑。
+9. 新增 product event tracking。
+10. 增加后端测试。
 
 ### 前端任务
 
-1. 新增 Closy 路由组。
-2. 新增 Closy 首页。
-3. 新增快捷入口组件。
-4. 新增相机/自拍组件。
-5. 改造聊天发送 hook 支持 Closy scenario。
-6. 新增 Closy 记忆页。
-7. 新增分享卡组件。
-8. 新增外部落地页。
-9. 增加前端测试。
+1. 在 `lumi` 内完成用户可见角色名统一为 Mochi。
+2. 修正 `.env.example`、默认 agent、请求示例为 `agent:closy`。
+3. 改造首页 `HomeView` 为 Mochi 首页。
+4. 改造聊天发送链路支持 Closy scenario、media、reply_mode。
+5. 改造 `/api/chat/completions` 和 `ChatView`，实现或明确保留非流式。
+6. 改造相机/自拍组件，接媒体上传与视觉场景。
+7. 改造 `/live`，接 `/v1/closy/live/ws`。
+8. 改造 `/memory`，接真实 profile/preferences。
+9. 新增分享卡组件和外部落地页。
+10. 增加前端测试和 Playwright 冒烟。
 
 ### Prompt/产品任务
 
@@ -1226,15 +1574,17 @@ sequenceDiagram
 
 如果目标是最快验证 MVP，建议按以下顺序：
 
-1. 创建 `closy` agent。
-2. 在现有聊天页基础上新增 `/closy` 轻量壳。
-3. 复用 `/v1/media/upload` 和 WebSocket `chat.send`，先跑通图片和语音。
-4. 新增 scenario prompt，不急着新增完整 API。
-5. 新增 `closy_profiles` 和 `closy_style_preferences` 两张表。
-6. 做 post-turn 抽取。
-7. 做 `Closy 记得你` 页面。
-8. 做分享卡。
-9. 再抽象完整 `/v1/closy/*` API。
+1. 使用已创建的 `closy` agent，不再新建 `/closy` 前端路由组。
+2. 在 `lumi` 现有 `/`、`/chat`、`/camera`、`/live`、`/memory` 页面上直接改造。
+3. 先把 `.env.example`、Next chat proxy 和 Apifox 示例统一到 `agent:closy`。
+4. 复用 `/v1/chat/completions` 跑通文字聊天；如产品要求打字机效果，同步完成 SSE。
+5. 复用现有媒体能力跑通图片上传/拍照到 Agent 对话。
+6. 用 `/v1/closy/live/ws` 跑通 `/live` 实时语音，但暂不要求记忆沉淀。
+7. 新增 `closy_profiles` 和 `closy_style_preferences` 两张表。
+8. 做 post-turn 抽取。
+9. 将 `/memory` 接真实 profile/preferences。
+10. 做分享卡。
+11. 最后抽象完整 `/v1/closy/*` API。
 
 这条路径可以最大化复用现有系统，降低前期工程量。
 
@@ -1254,18 +1604,28 @@ sequenceDiagram
 - 媒体存储。
 - Provider 管理。
 - 运行追踪。
+- Vertex Gemini Live WebSocket。
 
-但它缺少 Closy 作为 C 端产品所需的领域层和体验层：
+当前 `lumi` 也已经具备 C 端雏形：
 
-- 视觉优先首页。
-- 相机/自拍一级入口。
-- 语音主交互体验。
-- 领域风格画像。
-- 分享卡和落地页。
-- 产品指标体系。
+- 移动优先 Next.js 页面。
+- 首页、聊天、相机、Live、记忆、保存穿搭页面。
+- React Query API 适配层。
+- Next.js chat proxy。
+- Mock 数据和测试基础。
+
+但整体还缺少 Closy 作为 C 端产品所需的真实领域层和体验闭环：
+
+- 用户可见角色名需要统一为 Mochi，后端 key 保持 `closy`。
+- 文本聊天需要统一到 `agent:closy`。
+- 图片/自拍入口需要接真实媒体和视觉链路。
+- Live 页面需要接 `/v1/closy/live/ws`。
+- 领域风格画像、偏好、recent looks 需要真实存储。
+- 分享卡和落地页尚未实现。
+- 产品指标体系尚未实现。
 
 因此推荐方案是：
 
-> 不重写 GoClaw，不直接套用后台 UI，而是在 GoClaw 之上新增 Closy 产品层。GoClaw 负责 Agent 内核和基础设施，Closy 负责消费级体验、领域记忆、传播和指标闭环。
+> 不重写 GoClaw，不另起 C 端工程。GoClaw 负责 Agent 内核、多模态 Provider、工具、记忆和管理后台；`lumi` 负责 Closy 的消费级体验、视觉/语音入口、领域记忆展示、传播和指标闭环。
 
 按本文方案改造后，可以完成 PRD 中的 MVP 需求，并为后续多角色 Agent Native 社交平台保留扩展空间。

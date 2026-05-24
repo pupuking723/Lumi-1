@@ -204,6 +204,10 @@ func (h *ProvidersHandler) registerInMemory(p *store.LLMProviderData) {
 		h.providerReg.RegisterForTenant(p.TenantID, providers.NewOpenAIProvider(p.Name, "ollama", config.DockerLocalhost(host), "llama3.3"))
 		return
 	}
+	if p.ProviderType == store.ProviderVertex {
+		h.providerReg.RegisterForTenant(p.TenantID, buildVertexProviderFromHTTP(p, h.resolveAPIBase(p)))
+		return
+	}
 	if p.APIKey == "" {
 		return
 	}
@@ -246,6 +250,23 @@ func (h *ProvidersHandler) registerInMemory(p *store.LLMProviderData) {
 		}
 		h.providerReg.RegisterForTenant(p.TenantID, prov)
 	}
+}
+
+func buildVertexProviderFromHTTP(p *store.LLMProviderData, apiBase string) *providers.VertexProvider {
+	model := "gemini-2.5-flash"
+	var opts []providers.VertexOption
+	if settings := store.ParseVertexProviderSettings(p.Settings); settings != nil {
+		if settings.Model != "" {
+			model = settings.Model
+		}
+		if settings.ProjectID != "" {
+			opts = append(opts, providers.WithVertexProjectID(settings.ProjectID))
+		}
+		if settings.Location != "" {
+			opts = append(opts, providers.WithVertexLocation(settings.Location))
+		}
+	}
+	return providers.NewVertexProvider(p.Name, p.APIKey, apiBase, model, opts...)
 }
 
 // normalizeOllamaAPIBase ensures Ollama and OllamaCloud api_base values include the

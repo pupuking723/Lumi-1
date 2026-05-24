@@ -1,6 +1,6 @@
 # 02 - LLM Providers
 
-GoClaw abstracts LLM communication behind a single `Provider` interface, allowing the agent loop to work with any backend without knowing the wire format. Six concrete implementations exist: Anthropic (native HTTP+SSE), OpenAI-compatible (covering 10+ API endpoints), Claude CLI (local binary), Codex (OAuth-based), ACP (subagent orchestration), and DashScope (Alibaba Qwen with thinking). The OpenAI-compatible provider also supports BytePlus ModelArk (Seed 2.0 models with image/video generation).
+GoClaw abstracts LLM communication behind a single `Provider` interface, allowing the agent loop to work with any backend without knowing the wire format. Concrete implementations include Anthropic, OpenAI-compatible endpoints, Claude CLI, Codex, ACP, DashScope, and Vertex AI Gemini. The OpenAI-compatible provider also supports BytePlus ModelArk (Seed 2.0 models with image/video generation).
 
 ---
 
@@ -30,6 +30,8 @@ flowchart TD
     CODEX --> CODEX_API["ChatGPT Responses API<br/>chatgpt.com/backend-api"]
     ACP --> AGENTS["Claude Code / Codex<br/>Gemini CLI agents"]
     DASH --> QWEN["Alibaba DashScope<br/>Qwen3 models"]
+    PI --> VERTEX["Vertex Provider<br/>Gemini generateContent"]
+    VERTEX --> VAI["Vertex AI<br/>aiplatform.googleapis.com"]
 ```
 
 Authentication and timeouts vary by provider type:
@@ -39,14 +41,15 @@ Authentication and timeouts vary by provider type:
 - **Codex**: OAuth access token (auto-refreshed via TokenSource)
 - **ACP**: JSON-RPC 2.0 over subprocess stdio
 - **DashScope**: `Authorization: Bearer` token (inherits from OpenAI-compatible)
+- **Vertex**: Google OAuth access token, service account credentials, or local `gcloud auth print-access-token`
 
-All HTTP-based providers (Anthropic, OpenAI-compatible, Codex) use 300-second timeout.
+HTTP provider timeouts are set per implementation; Vertex uses a longer timeout for large multimodal responses.
 
 ---
 
 ## 2. Supported Providers
 
-### Six Core Provider Types
+### Core Provider Types
 
 | Provider | Type | Configuration | Default Model |
 |----------|------|----------|---------------|
@@ -55,7 +58,32 @@ All HTTP-based providers (Anthropic, OpenAI-compatible, Codex) use 300-second ti
 | **codex** | OAuth Responses API | OAuth token source | `gpt-5.3-codex` |
 | **acp** | JSON-RPC 2.0 subagents | Binary + workspace dir | `claude` |
 | **dashscope** | OpenAI-compat wrapper | API key + custom models | `qwen3-max` |
+| **vertex** | Vertex AI Gemini native HTTP | Project/location + OAuth/service account | `gemini-2.5-flash` |
 | **openai** (+ 10+ variants) | OpenAI-compatible | API key + endpoint URL | Model-specific |
+
+### Vertex AI
+
+The native `vertex` provider calls Vertex AI Gemini `generateContent` and `streamGenerateContent` directly. It supports text, vision input, tool calling, streaming, and thinking budget mapping.
+
+Configuration and local startup examples live in [Vertex Provider and Live WebSocket](./vertex-provider-live.md).
+
+Minimal environment:
+
+```bash
+export GOCLAW_VERTEX_PROJECT_ID="your-gcp-project-id"
+export GOCLAW_VERTEX_LOCATION="us-central1"
+export GOOGLE_APPLICATION_CREDENTIALS="/absolute/path/to/service-account.json"
+```
+
+Provider settings JSON:
+
+```json
+{
+  "project_id": "your-gcp-project-id",
+  "location": "us-central1",
+  "model": "gemini-2.5-flash"
+}
+```
 
 ### OpenAI-Compatible Providers
 

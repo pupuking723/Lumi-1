@@ -32,6 +32,9 @@ func (l *Loop) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 		event.ChatID = req.ChatID
 		event.SessionKey = req.SessionKey
 		event.TenantID = store.TenantIDFromContext(ctx)
+		if req.OnEvent != nil {
+			req.OnEvent(event)
+		}
 		l.emit(event)
 	}
 

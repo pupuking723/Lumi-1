@@ -7,6 +7,7 @@ import (
 
 	"github.com/nextlevelbuilder/goclaw/internal/audio"
 	"github.com/nextlevelbuilder/goclaw/internal/bus"
+	"github.com/nextlevelbuilder/goclaw/internal/closy"
 	"github.com/nextlevelbuilder/goclaw/internal/gateway/methods"
 	httpapi "github.com/nextlevelbuilder/goclaw/internal/http"
 	mcpbridge "github.com/nextlevelbuilder/goclaw/internal/mcp"
@@ -143,6 +144,20 @@ func (d *gatewayDeps) wireHTTPHandlersOnServer(
 	// Edition info (public, no auth — used by desktop UI comparison modal)
 	d.server.SetEditionHandler(httpapi.NewEditionHandler())
 
+	// Vertex Gemini Live WebSocket bridge for low-latency C-side voice sessions.
+	d.server.SetVertexLiveHandler(httpapi.NewVertexLiveHandler())
+	if d.pgStores != nil {
+		geminiLive := httpapi.NewGeminiLiveHandler(d.pgStores.Agents, d.pgStores.Sessions)
+		if d.pgStores.MediaAssets != nil {
+			geminiLive.SetMediaAssetStore(d.pgStores.MediaAssets)
+		}
+		if d.pgStores.ClosyMemory != nil {
+			geminiLive.SetClosyMemoryStore(d.pgStores.ClosyMemory)
+			d.server.SetClosyMemoryStore(d.pgStores.ClosyMemory)
+		}
+		d.server.SetGeminiLiveHandler(geminiLive)
+	}
+
 	if d.pgStores != nil && d.pgStores.APIKeys != nil {
 		d.server.SetAPIKeysHandler(httpapi.NewAPIKeysHandler(d.pgStores.APIKeys, d.msgBus))
 		d.server.SetAPIKeyStore(d.pgStores.APIKeys)
@@ -157,6 +172,15 @@ func (d *gatewayDeps) wireHTTPHandlersOnServer(
 	// Memory management API
 	if d.pgStores != nil && d.pgStores.Memory != nil {
 		d.server.SetMemoryHandler(httpapi.NewMemoryHandler(d.pgStores.Memory))
+	}
+	if d.pgStores != nil && d.pgStores.ClosyMemory != nil && d.pgStores.Agents != nil {
+		d.server.SetClosyProfileHandler(httpapi.NewClosyProfileHandler(d.pgStores.Agents, d.pgStores.ClosyMemory))
+	}
+	if d.pgStores != nil && d.pgStores.ClosyOOTD != nil && d.pgStores.MediaAssets != nil {
+		d.server.SetClosyOOTDHandler(httpapi.NewClosyOOTDHandler(d.agentRouter, d.pgStores.MediaAssets, d.pgStores.ClosyOOTD, d.pgStores.ClosyMemory))
+	}
+	if d.pgStores != nil && d.pgStores.ClosyOOTD != nil && d.pgStores.ClosyShareCards != nil {
+		d.server.SetClosyShareCardsHandler(httpapi.NewClosyShareCardsHandler(d.pgStores.ClosyOOTD, d.pgStores.ClosyShareCards))
 	}
 
 	// Knowledge graph API
@@ -221,6 +245,13 @@ func (d *gatewayDeps) wireHTTPHandlersOnServer(
 	// Media upload endpoint — accepts multipart file uploads, returns temp path + MIME type.
 	d.server.SetMediaUploadHandler(httpapi.NewMediaUploadHandler())
 
+	// C-side chat attachment upload endpoint. It returns media_id records for
+	// /v1/chat/completions without changing the console WebSocket upload flow.
+	if mediaStore != nil && d.pgStores != nil && d.pgStores.MediaAssets != nil {
+		d.server.SetMediaAssetStore(d.pgStores.MediaAssets)
+		d.server.SetChatAttachmentUploadHandler(httpapi.NewChatAttachmentUploadHandler(mediaStore, d.pgStores.MediaAssets))
+	}
+
 	// Media serve endpoint — serves persisted media files by ID for WS/web clients.
 	if mediaStore != nil {
 		d.server.SetMediaServeHandler(httpapi.NewMediaServeHandler(mediaStore))
@@ -272,6 +303,15 @@ func (d *gatewayDeps) wireHTTPHandlersOnServer(
 	// Seed + apply builtin tool disables
 	if d.pgStores.BuiltinTools != nil {
 		seedBuiltinTools(context.Background(), d.pgStores.BuiltinTools)
+		closyProvider := d.cfg.Agents.Defaults.Provider
+		closyModel := d.cfg.Agents.Defaults.Model
+		if p, m := resolveBackgroundProvider(d.cfg, d.providerRegistry); p != nil {
+			closyProvider = p.Name()
+			closyModel = m
+		}
+		if err := closy.EnsureMediaTools(context.Background(), d.pgStores.BuiltinTools, closyProvider, closyModel); err != nil {
+			slog.Warn("closy: media tool setup failed", "error", err)
+		}
 		migrateBuiltinToolSettings(context.Background(), d.pgStores.BuiltinTools)
 		backfillWebFetchSettings(context.Background(), d.pgStores.BuiltinTools)
 		applyBuiltinToolDisables(context.Background(), d.pgStores.BuiltinTools, d.toolsReg)

@@ -122,6 +122,11 @@ func registerProviders(registry *providers.Registry, cfg *config.Config, modelRe
 		slog.Info("registered provider", "name", "zai-coding")
 	}
 
+	if cfg.Providers.Vertex.APIKey != "" {
+		registry.Register(providers.NewVertexProvider("vertex", cfg.Providers.Vertex.APIKey, cfg.Providers.Vertex.APIBase, "gemini-2.5-flash"))
+		slog.Info("registered provider", "name", "vertex")
+	}
+
 	// Local / self-hosted Ollama — gated on Host, no API key required.
 	// Ollama's OpenAI-compat endpoint accepts any non-empty Bearer value.
 	if cfg.Providers.Ollama.Host != "" {
@@ -323,6 +328,11 @@ func registerProvidersFromDB(registry *providers.Registry, provStore store.Provi
 			slog.Info("registered provider from DB", "name", p.Name)
 			continue
 		}
+		if p.ProviderType == store.ProviderVertex {
+			registry.RegisterForTenant(p.TenantID, buildVertexProviderFromDB(p))
+			slog.Info("registered provider from DB", "name", p.Name)
+			continue
+		}
 
 		if p.APIKey == "" {
 			continue
@@ -408,6 +418,23 @@ func registerProvidersFromDB(registry *providers.Registry, provStore store.Provi
 		}
 		slog.Info("registered provider from DB", "name", p.Name)
 	}
+}
+
+func buildVertexProviderFromDB(p store.LLMProviderData) *providers.VertexProvider {
+	model := "gemini-2.5-flash"
+	var opts []providers.VertexOption
+	if settings := store.ParseVertexProviderSettings(p.Settings); settings != nil {
+		if settings.Model != "" {
+			model = settings.Model
+		}
+		if settings.ProjectID != "" {
+			opts = append(opts, providers.WithVertexProjectID(settings.ProjectID))
+		}
+		if settings.Location != "" {
+			opts = append(opts, providers.WithVertexLocation(settings.Location))
+		}
+	}
+	return providers.NewVertexProvider(p.Name, p.APIKey, p.APIBase, model, opts...)
 }
 
 // registerACPFromConfig registers an ACP provider from config file settings.

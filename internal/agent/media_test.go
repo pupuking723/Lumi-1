@@ -1,13 +1,16 @@
 package agent
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/nextlevelbuilder/goclaw/internal/bus"
 	"github.com/nextlevelbuilder/goclaw/internal/media"
 	"github.com/nextlevelbuilder/goclaw/internal/providers"
+	"github.com/nextlevelbuilder/goclaw/internal/tools"
 )
 
 // TestEnrichImageIDs_BareTag verifies enrichment of a bare <media:image> tag
@@ -81,6 +84,42 @@ func testMediaStore(t *testing.T) *media.Store {
 		t.Fatal(err)
 	}
 	return s
+}
+
+func TestEnrichInputMedia_ForceInlineImagesBypassesReadImageProvider(t *testing.T) {
+	workspace := t.TempDir()
+	src := filepath.Join(t.TempDir(), "cat.png")
+	if err := os.WriteFile(src, []byte("fake image bytes"), 0644); err != nil {
+		t.Fatalf("write image: %v", err)
+	}
+
+	loop := Loop{
+		builtinToolSettings: tools.BuiltinToolSettings{
+			"read_image": []byte(`{"providers":[{"provider":"zai-coding","model":"glm-5","enabled":true}]}`),
+		},
+	}
+	messages := []providers.Message{{
+		Role:    "user",
+		Content: `<media:image> can you see the cat?`,
+	}}
+	req := &RunRequest{
+		SessionKey:        "agent:closy:http-test",
+		Media:             []bus.MediaFile{{Path: src, MimeType: "image/png", Filename: "cat.png"}},
+		ForceInlineImages: true,
+	}
+
+	ctx := tools.WithToolWorkspace(context.Background(), workspace)
+	_, enriched, _ := loop.enrichInputMedia(ctx, req, messages)
+
+	if len(enriched) != 1 {
+		t.Fatalf("messages len = %d, want 1", len(enriched))
+	}
+	if got := len(enriched[0].Images); got != 1 {
+		t.Fatalf("inline images = %d, want 1", got)
+	}
+	if !strings.Contains(enriched[0].Content, `id="`) {
+		t.Fatalf("expected media tag to keep persisted id, got %q", enriched[0].Content)
+	}
 }
 
 // TestEnrichImagePaths_NoDoubleEnrich verifies that historical messages with

@@ -4199,11 +4199,21 @@ paths:
               default:
                 summary: Apifox 请求示例
                 value:
-                  model: agent:fox-spirit
+                  model: agent:closy
                   messages:
                   - role: user
                     content: 你好，请介绍一下你自己
                   stream: false
+              with_attachment:
+                summary: C端附件对话示例
+                value:
+                  model: agent:closy
+                  messages:
+                  - role: user
+                    content: 帮我看看这套穿搭适合约会吗？
+                  attachments:
+                  - media_id: 019e4fb1-169c-7e77-9f22-b311bc729410
+                  stream: true
       responses:
         '200':
           description: 成功响应。具体字段以运行时返回为准。
@@ -4216,6 +4226,68 @@ paths:
                 success:
                   value:
                     status: ok
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/chat/attachments/upload:
+    post:
+      tags:
+      - 对话
+      summary: 上传C端对话附件
+      description: 源码路由：`POST /v1/chat/attachments/upload`。该接口专供 C 端 `/v1/chat/completions` 使用，返回 `media_id`，不影响控制台 WebSocket 使用的 `/v1/media/upload`。
+      operationId: post_v1_chat_attachments_upload
+      parameters:
+      - *id001
+      - *id002
+      - *id003
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+              - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                session_id:
+                  type: string
+                  description: 可选，C端会话ID，用于后续按会话归档。
+                agent_id:
+                  type: string
+                  format: uuid
+                  description: 可选，Agent UUID，用于附件归属。
+            examples:
+              default:
+                summary: C端附件上传示例
+                value:
+                  file: <选择本地文件>
+                  session_id: c-session-001
+      responses:
+        '200':
+          description: 返回可用于 `/v1/chat/completions.attachments[].media_id` 的附件ID。
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+              examples:
+                success:
+                  value:
+                    media_id: 019e4fb1-169c-7e77-9f22-b311bc729410
+                    filename: outfit.png
+                    mime_type: image/png
+                    size: 123456
+                    sha256: abc123
+                    storage: local
+                    status: ready
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':

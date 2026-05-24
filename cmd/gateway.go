@@ -17,24 +17,25 @@ import (
 	"github.com/nextlevelbuilder/goclaw/internal/bus"
 	"github.com/nextlevelbuilder/goclaw/internal/cache"
 	"github.com/nextlevelbuilder/goclaw/internal/channels"
-	"github.com/nextlevelbuilder/goclaw/internal/consolidation"
-	"github.com/nextlevelbuilder/goclaw/internal/eventbus"
-	kg "github.com/nextlevelbuilder/goclaw/internal/knowledgegraph"
 	"github.com/nextlevelbuilder/goclaw/internal/channels/discord"
 	"github.com/nextlevelbuilder/goclaw/internal/channels/facebook"
-	"github.com/nextlevelbuilder/goclaw/internal/channels/pancake"
 	"github.com/nextlevelbuilder/goclaw/internal/channels/feishu"
+	"github.com/nextlevelbuilder/goclaw/internal/channels/pancake"
 	slackchannel "github.com/nextlevelbuilder/goclaw/internal/channels/slack"
 	"github.com/nextlevelbuilder/goclaw/internal/channels/telegram"
 	"github.com/nextlevelbuilder/goclaw/internal/channels/whatsapp"
 	"github.com/nextlevelbuilder/goclaw/internal/channels/zalo"
 	zalopersonal "github.com/nextlevelbuilder/goclaw/internal/channels/zalo/personal"
+	"github.com/nextlevelbuilder/goclaw/internal/closy"
 	"github.com/nextlevelbuilder/goclaw/internal/config"
+	"github.com/nextlevelbuilder/goclaw/internal/consolidation"
 	"github.com/nextlevelbuilder/goclaw/internal/edition"
+	"github.com/nextlevelbuilder/goclaw/internal/eventbus"
 	"github.com/nextlevelbuilder/goclaw/internal/gateway"
 	"github.com/nextlevelbuilder/goclaw/internal/gateway/methods"
 	"github.com/nextlevelbuilder/goclaw/internal/hooks"
 	httpapi "github.com/nextlevelbuilder/goclaw/internal/http"
+	kg "github.com/nextlevelbuilder/goclaw/internal/knowledgegraph"
 	mcpbridge "github.com/nextlevelbuilder/goclaw/internal/mcp"
 	"github.com/nextlevelbuilder/goclaw/internal/media"
 	"github.com/nextlevelbuilder/goclaw/internal/providers"
@@ -197,6 +198,12 @@ func runGateway() {
 	// Resolve background provider for consolidation + vault enrichment.
 	// Fallback: background.provider → agent.default_provider → first registered provider.
 	bgProvider, bgModel := resolveBackgroundProvider(cfg, providerRegistry)
+	closyProvider := cfg.Agents.Defaults.Provider
+	closyModel := cfg.Agents.Defaults.Model
+	if bgProvider != nil {
+		closyProvider = bgProvider.Name()
+		closyModel = bgModel
+	}
 
 	// V3: Wire consolidation pipeline (episodic → semantic → KG → dreaming)
 	if pgStores.Episodic != nil {
@@ -251,6 +258,20 @@ func runGateway() {
 		slog.Warn("bootstrap: capabilities backfill failed", "error", err)
 	} else if count > 0 {
 		slog.Info("bootstrap: capabilities backfill complete", "agents", count)
+	}
+	if pgStores.Agents != nil {
+		if ag, created, err := closy.EnsureSeed(context.Background(), pgStores.Agents, closy.SeedOptions{
+			TenantID:          store.MasterTenantID,
+			WorkspaceRoot:     workspace,
+			Provider:          closyProvider,
+			Model:             closyModel,
+			ContextWindow:     cfg.Agents.Defaults.ContextWindow,
+			MaxToolIterations: cfg.Agents.Defaults.MaxToolIterations,
+		}); err != nil {
+			slog.Warn("closy: seed failed", "error", err)
+		} else if created {
+			slog.Info("closy: seeded default agent", "agent_id", ag.ID, "agent_key", ag.AgentKey)
+		}
 	}
 
 	// Subagent system (secureCLI store wired so subagent ExecTools enforce the gate)
@@ -317,8 +338,8 @@ func runGateway() {
 		agentRouter:      agentRouter,
 		toolsReg:         toolsReg,
 		skillsLoader:     skillsLoader,
-		enrichProgress: enrichProgress,
-		enrichWorker:   enrichWorker,
+		enrichProgress:   enrichProgress,
+		enrichWorker:     enrichWorker,
 		workspace:        workspace,
 		dataDir:          dataDir,
 		domainBus:        domainBus,

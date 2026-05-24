@@ -21,11 +21,11 @@ import (
 	"github.com/nextlevelbuilder/goclaw/internal/config"
 	httpapi "github.com/nextlevelbuilder/goclaw/internal/http"
 	mcpbridge "github.com/nextlevelbuilder/goclaw/internal/mcp"
-	"github.com/nextlevelbuilder/goclaw/internal/webui"
 	"github.com/nextlevelbuilder/goclaw/internal/permissions"
 	"github.com/nextlevelbuilder/goclaw/internal/providers"
 	"github.com/nextlevelbuilder/goclaw/internal/store"
 	"github.com/nextlevelbuilder/goclaw/internal/tools"
+	"github.com/nextlevelbuilder/goclaw/internal/webui"
 	"github.com/nextlevelbuilder/goclaw/pkg/protocol"
 )
 
@@ -50,21 +50,23 @@ type Server struct {
 	// Non-handler dependencies (don't implement RegisterRoutes)
 	policyEngine   *permissions.PolicyEngine
 	pairingService store.PairingStore
-	apiKeyStore    store.APIKeyStore  // for API key auth lookup
-	agentStore     store.AgentStore   // for context injection in tools_invoke
-	msgBus         *bus.MessageBus    // for MCP bridge media delivery
+	apiKeyStore    store.APIKeyStore // for API key auth lookup
+	agentStore     store.AgentStore  // for context injection in tools_invoke
+	msgBus         *bus.MessageBus   // for MCP bridge media delivery
+	mediaAssets    store.MediaAssetStore
+	closyMemory    store.ClosyMemoryStore
 
 	upgrader    websocket.Upgrader
 	rateLimiter *RateLimiter
 	clients     map[string]*Client
 	mu          sync.RWMutex
 
-	startedAt      time.Time
-	version        string
-	db             interface{ PingContext(context.Context) error } // for health check DB ping
-	updateChecker  *UpdateChecker
+	startedAt     time.Time
+	version       string
+	db            interface{ PingContext(context.Context) error } // for health check DB ping
+	updateChecker *UpdateChecker
 
-	logTee   *LogTee                  // optional; auto-unsubscribes clients on disconnect
+	logTee   *LogTee                 // optional; auto-unsubscribes clients on disconnect
 	postTurn tools.PostTurnProcessor // optional; for team task dispatch in HTTP API paths
 
 	httpServer *http.Server
@@ -149,6 +151,12 @@ func (s *Server) BuildMux() *http.ServeMux {
 	// OpenAI-compatible chat completions
 	isManaged := s.agentStore != nil
 	chatHandler := httpapi.NewChatCompletionsHandler(s.agents, s.sessions, isManaged)
+	if s.mediaAssets != nil {
+		chatHandler.SetMediaAssetStore(s.mediaAssets)
+	}
+	if s.closyMemory != nil {
+		chatHandler.SetClosyMemoryStore(s.agentStore, s.closyMemory)
+	}
 	if s.rateLimiter.Enabled() {
 		chatHandler.SetRateLimiter(s.rateLimiter.Allow)
 	}
@@ -491,6 +499,17 @@ func (s *Server) SetMediaUploadHandler(h *httpapi.MediaUploadHandler) {
 	s.handlers = append(s.handlers, h)
 }
 
+// SetChatAttachmentUploadHandler sets the C-side chat attachment upload handler.
+func (s *Server) SetChatAttachmentUploadHandler(h *httpapi.ChatAttachmentUploadHandler) {
+	s.handlers = append(s.handlers, h)
+}
+
+// SetMediaAssetStore sets the media asset store used by HTTP chat completions.
+func (s *Server) SetMediaAssetStore(st store.MediaAssetStore) { s.mediaAssets = st }
+
+// SetClosyMemoryStore sets the Mochi domain memory store used by C-side chat.
+func (s *Server) SetClosyMemoryStore(st store.ClosyMemoryStore) { s.closyMemory = st }
+
 // SetMediaServeHandler sets the media serve handler.
 func (s *Server) SetMediaServeHandler(h *httpapi.MediaServeHandler) {
 	s.handlers = append(s.handlers, h)
@@ -498,6 +517,21 @@ func (s *Server) SetMediaServeHandler(h *httpapi.MediaServeHandler) {
 
 // SetMemoryHandler sets the memory management handler.
 func (s *Server) SetMemoryHandler(h *httpapi.MemoryHandler) { s.handlers = append(s.handlers, h) }
+
+// SetClosyProfileHandler sets the Mochi domain memory profile handler.
+func (s *Server) SetClosyProfileHandler(h *httpapi.ClosyProfileHandler) {
+	s.handlers = append(s.handlers, h)
+}
+
+// SetClosyOOTDHandler sets the Mochi OOTD review handler.
+func (s *Server) SetClosyOOTDHandler(h *httpapi.ClosyOOTDHandler) {
+	s.handlers = append(s.handlers, h)
+}
+
+// SetClosyShareCardsHandler sets the Mochi share card handler.
+func (s *Server) SetClosyShareCardsHandler(h *httpapi.ClosyShareCardsHandler) {
+	s.handlers = append(s.handlers, h)
+}
 
 // SetKnowledgeGraphHandler sets the knowledge graph handler.
 func (s *Server) SetKnowledgeGraphHandler(h *httpapi.KnowledgeGraphHandler) {
@@ -569,6 +603,16 @@ func (s *Server) SetDocsHandler(h *httpapi.DocsHandler) { s.handlers = append(s.
 
 // SetEditionHandler sets the edition info handler.
 func (s *Server) SetEditionHandler(h *httpapi.EditionHandler) { s.handlers = append(s.handlers, h) }
+
+// SetVertexLiveHandler sets the Vertex Gemini Live WebSocket handler.
+func (s *Server) SetVertexLiveHandler(h *httpapi.VertexLiveHandler) {
+	s.handlers = append(s.handlers, h)
+}
+
+// SetGeminiLiveHandler sets the independent Gemini Live WebSocket handler.
+func (s *Server) SetGeminiLiveHandler(h *httpapi.GeminiLiveHandler) {
+	s.handlers = append(s.handlers, h)
+}
 
 // SetAgentStore sets the agent store for context injection in tools_invoke.
 func (s *Server) SetAgentStore(as store.AgentStore) { s.agentStore = as }
@@ -674,6 +718,12 @@ func StartTestServer(s *Server, ctx context.Context) (addr string, start func())
 
 	isManaged := s.agentStore != nil
 	chatHandler := httpapi.NewChatCompletionsHandler(s.agents, s.sessions, isManaged)
+	if s.mediaAssets != nil {
+		chatHandler.SetMediaAssetStore(s.mediaAssets)
+	}
+	if s.closyMemory != nil {
+		chatHandler.SetClosyMemoryStore(s.agentStore, s.closyMemory)
+	}
 	if s.rateLimiter.Enabled() {
 		chatHandler.SetRateLimiter(s.rateLimiter.Allow)
 	}

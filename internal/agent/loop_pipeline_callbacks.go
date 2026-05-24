@@ -34,6 +34,9 @@ func (l *Loop) pipelineCallbacks(req *RunRequest, bridgeRS *runState) pipelineCa
 		event.ChatID = req.ChatID
 		event.SessionKey = req.SessionKey
 		event.TenantID = l.tenantID
+		if req.OnEvent != nil {
+			req.OnEvent(event)
+		}
 		l.emit(event)
 	}
 	return pipelineCallbackSet{
@@ -180,6 +183,10 @@ func (l *Loop) makeEnrichMedia(req *RunRequest) func(ctx context.Context, state 
 		// Skip system message (index 0) — only history + user messages are enriched.
 		if len(enrichedMsgs) > 1 {
 			state.Messages.SetHistory(enrichedMsgs[1:])
+			current := enrichedMsgs[len(enrichedMsgs)-1]
+			if current.Role == "user" {
+				req.enrichedInput = &current
+			}
 		}
 		return nil
 	}
@@ -382,9 +389,18 @@ func (l *Loop) makeFlushMessages(req *RunRequest) func(ctx context.Context, sess
 	return func(ctx context.Context, sessionKey string, msgs []providers.Message) error {
 		if !userMsgFlushed && !req.HideInput && req.Message != "" {
 			userMsgFlushed = true
-			l.sessions.AddMessage(ctx, sessionKey, providers.Message{
+			input := providers.Message{
 				Role:    "user",
 				Content: req.Message,
+			}
+			if req.enrichedInput != nil {
+				input = *req.enrichedInput
+			}
+			l.sessions.AddMessage(ctx, sessionKey, providers.Message{
+				Role:      input.Role,
+				Content:   input.Content,
+				Images:    input.Images,
+				MediaRefs: input.MediaRefs,
 			})
 		}
 		for _, msg := range msgs {

@@ -49,6 +49,7 @@ func addProvider() {
 		{"OpenAI", "openai"},
 		{"OpenRouter", "openrouter"},
 		{"DashScope (Alibaba)", "dashscope"},
+		{"Vertex AI", "vertex"},
 		{"OpenAI-compatible", "openai-compat"},
 	}
 	providerType, err := promptSelect("Provider type", typeOptions, 0)

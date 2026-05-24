@@ -125,6 +125,7 @@ func runProvidersAdd() {
 		{"OpenAI", "openai"},
 		{"OpenRouter", "openrouter"},
 		{"DashScope (Alibaba)", "dashscope"},
+		{"Vertex AI", "vertex"},
 		{"OpenAI-compatible", "openai-compat"},
 	}
 	providerType, err := promptSelect("Provider type", typeOptions, 0)
@@ -314,6 +315,8 @@ func defaultBaseURL(providerType string) string {
 		return "https://openrouter.ai/api/v1"
 	case "dashscope":
 		return "https://dashscope.aliyuncs.com/compatible-mode/v1"
+	case "vertex":
+		return ""
 	default:
 		return ""
 	}
