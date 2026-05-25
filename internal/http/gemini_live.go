@@ -376,7 +376,10 @@ func (h *GeminiLiveHandler) geminiLiveClientToUpstream(ctx context.Context, rt g
 			continue
 		}
 		if payload == nil {
-			return nil
+			if strings.EqualFold(strings.TrimSpace(event.Type), "close") {
+				return nil
+			}
+			continue
 		}
 		if err := upstream.WriteJSON(payload); err != nil {
 			return fmt.Errorf("send gemini live input: %w", err)
@@ -523,6 +526,8 @@ func (h *GeminiLiveHandler) geminiLiveClientEventToPayload(ctx context.Context, 
 			return nil, nil, fmt.Errorf("live text event requires content")
 		}
 		return map[string]any{"realtimeInput": map[string]any{"text": text}}, nil, nil
+	case "start", "client_trace", "ready":
+		return nil, nil, nil
 	case "media":
 		payload, asset, err := h.geminiLiveMediaPayload(ctx, event)
 		if err != nil {
@@ -541,6 +546,8 @@ func (h *GeminiLiveHandler) geminiLiveClientEventToPayload(ctx context.Context, 
 			}),
 		}
 		return payload, ack, nil
+	case "audio_end_and_close", "done":
+		return map[string]any{"realtimeInput": map[string]any{"audioStreamEnd": true}}, nil, nil
 	case "close":
 		return nil, nil, nil
 	default:
@@ -670,14 +677,14 @@ func (a *geminiLiveAccumulator) consume(message map[string]any, outputMIME strin
 		a.outputSuppressed = true
 		events = append(events, geminiLiveEvent{Type: "live_interrupted"})
 	}
-	if input := geminiLiveTranscriptionText(content, "inputTranscription"); input != "" {
+	if input := geminiLiveTranscriptionText(content, "inputTranscription"); input != "" && !geminiLiveIsNoisyInputTranscript(input) {
 		a.input.WriteString(input)
-		events = append(events, geminiLiveEvent{Type: "live_transcript", Role: "user", Content: input, Data: geminiLiveJSON(map[string]any{"source": "input"})})
+		events = append(events, geminiLiveEvent{Type: "live_transcript", Role: "user", Content: input, Data: geminiLiveJSON(map[string]any{"source": "input", "final": false})})
 	}
 	if !a.outputSuppressed {
 		if output := geminiLiveTranscriptionText(content, "outputTranscription"); output != "" {
 			a.output.WriteString(output)
-			events = append(events, geminiLiveEvent{Type: "live_transcript", Role: "assistant", Content: output, Data: geminiLiveJSON(map[string]any{"source": "output"})})
+			events = append(events, geminiLiveEvent{Type: "live_transcript", Role: "assistant", Content: output, Data: geminiLiveJSON(map[string]any{"source": "output", "final": false})})
 		}
 		for _, audio := range geminiLiveOutputAudioParts(content, outputMIME) {
 			events = append(events, geminiLiveEvent{Type: "live_audio", Role: "assistant", Data: geminiLiveJSON(audio)})
@@ -700,6 +707,31 @@ func geminiLiveTranscriptionText(content map[string]any, key string) string {
 	transcription, _ := content[key].(map[string]any)
 	text, _ := transcription["text"].(string)
 	return text
+}
+
+func geminiLiveIsNoisyInputTranscript(text string) bool {
+	compact := strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(text)), ""))
+	if compact == "" || len([]rune(compact)) <= 1 {
+		return true
+	}
+	switch compact {
+	case "嗯", "嗯嗯", "啊", "啊啊", "呃", "额", "喂", "alo", "hello":
+		return true
+	}
+	runes := []rune(compact)
+	if len(runes) >= 4 {
+		same := true
+		for _, r := range runes[1:] {
+			if r != runes[0] {
+				same = false
+				break
+			}
+		}
+		if same {
+			return true
+		}
+	}
+	return len(runes) <= 8 && (strings.Contains(compact, "调调调") || strings.Contains(compact, "孤独"))
 }
 
 func geminiLiveOutputAudioParts(content map[string]any, fallbackMIME string) []map[string]any {
