@@ -250,6 +250,25 @@ func TestLiveRequestWithBrowserAuthUsesCookies(t *testing.T) {
 	}
 }
 
+func TestLiveRequestWithBrowserAuthDecodesCookieValues(t *testing.T) {
+	req := httptest.NewRequest("GET", "/v1/closy/live/gemini/ws?session_id=s1", nil)
+	req.AddCookie(&http.Cookie{Name: "lumi_live_token", Value: "cookie%2Btoken"})
+	req.AddCookie(&http.Cookie{Name: "lumi_live_user_id", Value: "google%3Auser-1"})
+	req.AddCookie(&http.Cookie{Name: "lumi_live_tenant_id", Value: "tenant%2Fdefault"})
+
+	next, bearer := liveRequestWithBrowserAuth(req)
+
+	if bearer != "cookie+token" {
+		t.Fatalf("bearer = %q", bearer)
+	}
+	if got := next.Header.Get("X-GoClaw-User-Id"); got != "google:user-1" {
+		t.Fatalf("user header = %q", got)
+	}
+	if got := next.Header.Get("X-GoClaw-Tenant-Id"); got != "tenant/default" {
+		t.Fatalf("tenant header = %q", got)
+	}
+}
+
 func TestLiveRequestWithBrowserAuthPreservesExplicitHeaders(t *testing.T) {
 	req := httptest.NewRequest("GET", "/v1/closy/live/gemini/ws?token=query-token", nil)
 	req.Header.Set("Authorization", "Bearer header-token")

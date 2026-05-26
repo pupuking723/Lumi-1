@@ -2,6 +2,7 @@ package http
 
 import (
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 )
@@ -65,7 +66,11 @@ func liveCookieValue(r *http.Request, names ...string) string {
 		}
 		cookie, err := r.Cookie(name)
 		if err == nil {
-			return strings.TrimSpace(cookie.Value)
+			value := strings.TrimSpace(cookie.Value)
+			if decoded, err := url.PathUnescape(value); err == nil {
+				return strings.TrimSpace(decoded)
+			}
+			return value
 		}
 	}
 	return ""
