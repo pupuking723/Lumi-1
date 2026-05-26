@@ -16,6 +16,10 @@ pkg-helper
 # Environment
 .env*
 !.env.example
+/.env.local
+
+# Local exported runtime data
+/essential-data.sql
 
 app
 browser-poc
