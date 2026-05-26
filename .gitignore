@@ -65,6 +65,7 @@ k8s-*/*
 
 # Test credentials (never commit)
 tests/**/creds.json
+/secrets/
 ui/simple-saas
 *.tar
 # SQLite database files
