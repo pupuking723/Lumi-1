@@ -1,6 +1,6 @@
-# Vertex Provider and Live WebSocket
+# Vertex Provider and Gemini Live WebSocket
 
-This document covers the local setup for GoClaw's native `vertex` provider and the Vertex Gemini Live WebSocket bridge.
+This document covers the local setup for GoClaw's native `vertex` provider and the Gemini Live WebSocket bridge.
 
 ## What Is Implemented
 
@@ -8,10 +8,10 @@ This document covers the local setup for GoClaw's native `vertex` provider and t
 - Text/vision endpoint: Vertex AI Gemini `generateContent`
 - Streaming endpoint: Vertex AI Gemini `streamGenerateContent`
 - Live WebSocket bridge:
-  - `GET /v1/vertex/live/ws`
-  - `GET /v1/closy/live/ws`
+  - `GET /v1/gemini/live/ws`
+  - `GET /v1/closy/live/gemini/ws`
 
-The `/v1/closy/live/ws` route is an alias for the C-side Mochi/Closy realtime voice entry.
+The `/v1/closy/live/gemini/ws` route is the C-side Mochi/Closy realtime voice entry.
 
 ## Authentication
 
@@ -150,17 +150,7 @@ To test the provider directly, assign an agent to provider `vertex` and model `g
 
 ## Live WebSocket Configuration
 
-Existing Vertex Live bridge environment variables for `/v1/vertex/live/ws` and `/v1/closy/live/ws`:
-
-```bash
-export GOCLAW_VERTEX_LIVE_MODEL="gemini-live-2.5-flash-native-audio"
-export GOCLAW_VERTEX_LIVE_INPUT_MIME="audio/pcm;rate=16000"
-export GOCLAW_VERTEX_LIVE_INPUT_TRANSCRIPTION="true"
-export GOCLAW_VERTEX_LIVE_OUTPUT_TRANSCRIPTION="true"
-export GOCLAW_VERTEX_LIVE_TIMEOUT="10m"
-```
-
-Independent Gemini Live bridge environment variables for `/v1/gemini/live/ws` and `/v1/closy/live/gemini/ws`:
+Gemini Live bridge environment variables for `/v1/gemini/live/ws` and `/v1/closy/live/gemini/ws`:
 
 ```bash
 export GOCLAW_GEMINI_LIVE_AGENT="closy"
@@ -175,7 +165,7 @@ export GOCLAW_GEMINI_LIVE_OUTPUT_TRANSCRIPTION="true"
 export GOCLAW_GEMINI_LIVE_VAD_START_SENSITIVITY="START_SENSITIVITY_HIGH"
 export GOCLAW_GEMINI_LIVE_VAD_END_SENSITIVITY="END_SENSITIVITY_HIGH"
 export GOCLAW_GEMINI_LIVE_VAD_PREFIX_PADDING="150ms"
-export GOCLAW_GEMINI_LIVE_VAD_SILENCE_DURATION="500ms"
+export GOCLAW_GEMINI_LIVE_VAD_SILENCE_DURATION="350ms"
 export GOCLAW_GEMINI_LIVE_TIMEOUT="10m"
 ```
 
@@ -205,7 +195,7 @@ For non-browser clients, prefer the `Authorization` header instead of putting th
 Authorization: Bearer <GOCLAW_GATEWAY_TOKEN>
 ```
 
-Independent Gemini Live route:
+Closy Gemini Live route:
 
 ```text
 ws://127.0.0.1:9600/v1/closy/live/gemini/ws?project_id=<project>&location=us-central1
@@ -244,7 +234,7 @@ Server ready event:
 {
   "type": "live_ready",
   "data": {
-    "model": "gemini-live-2.5-flash-native-audio",
+    "model": "gemini-live-2.5-flash-preview-native-audio-09-2025",
     "input_audio_mime_type": "audio/pcm;rate=16000"
   }
 }
@@ -275,7 +265,7 @@ Server audio event:
 
 ## Common Errors
 
-### `vertex project ID is required`
+### `gemini live project ID is required`
 
 Set one of:
 
@@ -295,7 +285,7 @@ or use a full model resource:
 projects/<project>/locations/<location>/publishers/google/models/gemini-2.5-flash
 ```
 
-### `vertex access token is required`
+### `gemini live access token is required`
 
 Set an access token or service account credentials:
 

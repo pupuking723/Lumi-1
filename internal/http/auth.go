@@ -83,6 +83,7 @@ var pkgAPIKeyCache *apiKeyCache
 var pkgPairingStore store.PairingStore
 var pkgTenantCache *tenantCache
 var pkgOwnerIDs []string
+var pkgUserSessionSigner *userSessionSigner
 
 // InitGatewayToken sets the gateway bearer token for HTTP auth.
 // Must be called once during server startup before handling requests.
@@ -113,6 +114,12 @@ func InitPairingAuth(ps store.PairingStore) {
 // Owners get RoleOwner with gateway token; others get RoleAdmin scoped to their tenant.
 func InitOwnerIDs(ids []string) {
 	pkgOwnerIDs = ids
+}
+
+// InitUserSessionAuth configures browser/user bearer-token auth issued by the
+// Google login endpoint. An empty secret disables this auth path.
+func InitUserSessionAuth(secret string) {
+	pkgUserSessionSigner = newUserSessionSigner(secret)
 }
 
 // isHTTPOwnerID checks if the user ID is a configured owner.
@@ -155,6 +162,7 @@ type authResult struct {
 	Role          permissions.Role
 	Authenticated bool
 	KeyData       *store.APIKeyData // non-nil when authenticated via API key
+	UserID        string            // resolved user identity when authenticated by a user session token
 	TenantID      uuid.UUID         // resolved tenant; always concrete after resolution
 	TenantSlug    string            // resolved tenant slug for filesystem paths
 }
@@ -210,6 +218,20 @@ func resolveAuthWithBearer(r *http.Request, bearer string) authResult {
 			res.TenantID = keyData.TenantID
 			res.TenantSlug = resolveTenantSlug(r.Context(), keyData.TenantID)
 		}
+		return res
+	}
+	// User session token → role from the signed session.
+	if session, ok := verifyUserSessionBearer(bearer); ok {
+		res := authResult{
+			Role:          session.Role,
+			Authenticated: true,
+			UserID:        session.UserID,
+			TenantID:      session.TenantID,
+		}
+		if res.TenantID == uuid.Nil {
+			res.TenantID = store.MasterTenantID
+		}
+		res.TenantSlug = resolveTenantSlug(r.Context(), res.TenantID)
 		return res
 	}
 	// Browser pairing → operator (via X-GoClaw-Sender-Id header)
@@ -316,9 +338,19 @@ func enrichContext(ctx context.Context, r *http.Request, auth authResult) contex
 	ctx = store.WithLocale(ctx, extractLocale(r))
 	ctx = store.WithRole(ctx, string(auth.Role))
 	userID := extractUserID(r)
+	if auth.UserID != "" {
+		if userID != "" && userID != auth.UserID {
+			slog.Warn("security.user_session_user_header_ignored",
+				"header_user_id", userID,
+				"session_user_id", auth.UserID,
+				"ip", r.RemoteAddr,
+			)
+		}
+		userID = auth.UserID
+	}
 	// Security: In dev mode (no gateway token configured), do not trust the
 	// X-GoClaw-User-Id header — force "system" to prevent identity spoofing.
-	if pkgGatewayToken == "" && auth.KeyData == nil && userID != "" {
+	if pkgGatewayToken == "" && auth.KeyData == nil && auth.UserID == "" && userID != "" {
 		slog.Warn("security.user_id_header_ignored_no_auth",
 			"attempted_user_id", userID,
 			"ip", r.RemoteAddr,

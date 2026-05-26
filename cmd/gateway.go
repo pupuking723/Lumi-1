@@ -352,6 +352,7 @@ func runGateway() {
 		mcpToolLister = mcpMgr
 	}
 	httpapi.InitGatewayToken(cfg.Gateway.Token)
+	httpapi.InitUserSessionAuth(httpapi.GoogleAuthSessionSecretFromEnv(cfg.Gateway.Token))
 	exportTokenStore := httpapi.InitExportTokenStore()
 	defer exportTokenStore.Stop()
 	agentsH, skillsH, tracesH, mcpH, channelInstancesH, providersH, builtinToolsH, pendingMessagesH, teamEventsH, secureCLIH, secureCLIGrantH, mcpUserCredsH := wireHTTP(pgStores, cfg.Agents.Defaults.Workspace, dataDir, bundledSkillsDir, msgBus, toolsReg, providerRegistry, modelReg, permPE.IsOwner, gatewayAddr, mcpToolLister)
@@ -576,6 +577,7 @@ func runGateway() {
 	if pgStores.Tenants != nil {
 		methods.NewTenantsMethods(pgStores.Tenants, msgBus, workspace).Register(server.Router())
 		server.SetTenantsHandler(httpapi.NewTenantsHandler(pgStores.Tenants, msgBus, workspace))
+		server.SetGoogleAuthHandler(httpapi.NewGoogleAuthHandler(pgStores.Tenants, msgBus))
 		server.Router().SetTenantStore(pgStores.Tenants)
 		// Permission cache for tenant membership checks. Store on deps so
 		// lifecycle shutdown can call Close() to stop the sweep goroutines.

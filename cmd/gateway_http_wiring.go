@@ -144,8 +144,6 @@ func (d *gatewayDeps) wireHTTPHandlersOnServer(
 	// Edition info (public, no auth — used by desktop UI comparison modal)
 	d.server.SetEditionHandler(httpapi.NewEditionHandler())
 
-	// Vertex Gemini Live WebSocket bridge for low-latency C-side voice sessions.
-	d.server.SetVertexLiveHandler(httpapi.NewVertexLiveHandler())
 	if d.pgStores != nil {
 		geminiLive := httpapi.NewGeminiLiveHandler(d.pgStores.Agents, d.pgStores.Sessions)
 		if d.pgStores.MediaAssets != nil {

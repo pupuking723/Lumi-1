@@ -475,6 +475,11 @@ func (s *Server) SetPackagesHandler(h *httpapi.PackagesHandler) {
 // SetOAuthHandler sets the OAuth handler (available in all modes).
 func (s *Server) SetOAuthHandler(h *httpapi.OAuthHandler) { s.handlers = append(s.handlers, h) }
 
+// SetGoogleAuthHandler sets the C-side Google login/session auth handler.
+func (s *Server) SetGoogleAuthHandler(h *httpapi.GoogleAuthHandler) {
+	s.handlers = append(s.handlers, h)
+}
+
 // SetAPIKeysHandler sets the API key management handler.
 func (s *Server) SetAPIKeysHandler(h *httpapi.APIKeysHandler) {
 	s.handlers = append(s.handlers, h)
@@ -603,11 +608,6 @@ func (s *Server) SetDocsHandler(h *httpapi.DocsHandler) { s.handlers = append(s.
 
 // SetEditionHandler sets the edition info handler.
 func (s *Server) SetEditionHandler(h *httpapi.EditionHandler) { s.handlers = append(s.handlers, h) }
-
-// SetVertexLiveHandler sets the Vertex Gemini Live WebSocket handler.
-func (s *Server) SetVertexLiveHandler(h *httpapi.VertexLiveHandler) {
-	s.handlers = append(s.handlers, h)
-}
 
 // SetGeminiLiveHandler sets the independent Gemini Live WebSocket handler.
 func (s *Server) SetGeminiLiveHandler(h *httpapi.GeminiLiveHandler) {

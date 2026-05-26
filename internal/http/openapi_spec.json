@@ -262,13 +262,13 @@
         }
       }
     },
-    "/v1/vertex/live/ws": {
+    "/v1/gemini/live/ws": {
       "get": {
         "tags": [
           "Live"
         ],
-        "summary": "Vertex Gemini Live WebSocket",
-        "description": "Upgrades to a WebSocket bridge for Vertex Gemini Live API. Browser clients may pass auth as `?token=` because WebSocket APIs cannot set custom Authorization headers in all environments. Client events: `audio`, `audio_end`, `activity_start`, `activity_end`, `text`, `close`. Server events: `live_ready`, `live_setup_complete`, `live_transcript`, `live_audio`, `message`, `done`, `error`.",
+        "summary": "Gemini Live WebSocket",
+        "description": "Upgrades to a WebSocket bridge for Gemini Live API. Browser clients may pass auth as `?token=` because WebSocket APIs cannot set custom Authorization headers in all environments. Client events: `audio`, `audio_end`, `activity_start`, `activity_end`, `text`, `media`, `close`. Media events reference image assets uploaded through `/v1/chat/attachments/upload`. Server events: `live_ready`, `live_setup_complete`, `live_transcript`, `live_audio`, `media_received`, `message`, `done`, `error`.",
         "parameters": [
           {
             "name": "token",
@@ -283,7 +283,7 @@
             "in": "query",
             "schema": {
               "type": "string",
-              "example": "gemini-live-2.5-flash-native-audio"
+              "example": "gemini-live-2.5-flash-preview-native-audio-09-2025"
             }
           },
           {
@@ -307,7 +307,7 @@
             "description": "WebSocket upgrade"
           },
           "400": {
-            "description": "Invalid Vertex Live configuration"
+            "description": "Invalid Gemini Live configuration"
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
@@ -315,13 +315,13 @@
         }
       }
     },
-    "/v1/closy/live/ws": {
+    "/v1/closy/live/gemini/ws": {
       "get": {
         "tags": [
           "Live"
         ],
-        "summary": "Closy Live WebSocket",
-        "description": "Alias of `/v1/vertex/live/ws` for the Closy C-side realtime voice entry.",
+        "summary": "Closy Gemini Live WebSocket",
+        "description": "Alias of `/v1/gemini/live/ws` for the Closy C-side realtime voice entry. Supports the same live audio, text, and image media events.",
         "parameters": [
           {
             "name": "token",
@@ -336,7 +336,7 @@
             "in": "query",
             "schema": {
               "type": "string",
-              "example": "gemini-live-2.5-flash-native-audio"
+              "example": "gemini-live-2.5-flash-preview-native-audio-09-2025"
             }
           },
           {
@@ -360,7 +360,7 @@
             "description": "WebSocket upgrade"
           },
           "400": {
-            "description": "Invalid Vertex Live configuration"
+            "description": "Invalid Gemini Live configuration"
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"

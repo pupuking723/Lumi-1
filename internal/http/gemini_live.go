@@ -29,14 +29,12 @@ const (
 	defaultGeminiLiveInputAudioMIME = "audio/pcm;rate=16000"
 	defaultGeminiLiveTimeout        = 10 * time.Minute
 	defaultGeminiLiveVADPrefix      = 150 * time.Millisecond
-	defaultGeminiLiveVADSilence     = 500 * time.Millisecond
+	defaultGeminiLiveVADSilence     = 350 * time.Millisecond
 )
 
 const geminiLiveAuthHelp = "set GOCLAW_VERTEX_ACCESS_TOKEN, VERTEX_ACCESS_TOKEN, GOOGLE_OAUTH_ACCESS_TOKEN, GOOGLE_ACCESS_TOKEN, provide service account credentials via GOOGLE_APPLICATION_CREDENTIALS / GOOGLE_APPLICATION_CREDENTIALS_JSON / GOCLAW_VERTEX_SERVICE_ACCOUNT_FILE / GOCLAW_VERTEX_SERVICE_ACCOUNT_JSON, or run gcloud auth print-access-token locally"
 
-// GeminiLiveHandler is an independent Gemini Live WebSocket bridge.
-// It intentionally does not share routes or implementation state with
-// VertexLiveHandler, so the existing live API remains unchanged.
+// GeminiLiveHandler is the Gemini Live WebSocket bridge used by C-side live sessions.
 type GeminiLiveHandler struct {
 	upgrader websocket.Upgrader
 	agents   store.AgentStore
