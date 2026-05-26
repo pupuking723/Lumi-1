@@ -48,10 +48,7 @@ func (h *VertexLiveHandler) RegisterRoutes(mux *http.ServeMux) {
 }
 
 func (h *VertexLiveHandler) handleLiveWebSocket(w http.ResponseWriter, r *http.Request) {
-	bearer := extractBearerToken(r)
-	if bearer == "" {
-		bearer = r.URL.Query().Get("token")
-	}
+	r, bearer := liveRequestWithBrowserAuth(r)
 	req, ok := requireAuthBearer(permissions.RoleOperator, bearer, w, r)
 	if !ok {
 		return

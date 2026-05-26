@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
@@ -227,6 +228,69 @@ func TestGeminiLiveConfigUsesGoClawGeminiEnv(t *testing.T) {
 	}
 	if cfg.VADPrefixPadding != 250*time.Millisecond || cfg.VADSilenceDuration != 750*time.Millisecond || cfg.SessionTimeout != 3*time.Minute {
 		t.Fatalf("alias duration mismatch: %#v", cfg)
+	}
+}
+
+func TestLiveRequestWithBrowserAuthUsesCookies(t *testing.T) {
+	req := httptest.NewRequest("GET", "/v1/closy/live/gemini/ws?session_id=s1", nil)
+	req.AddCookie(&http.Cookie{Name: "lumi_live_token", Value: "cookie-token"})
+	req.AddCookie(&http.Cookie{Name: "lumi_live_user_id", Value: "user-cookie"})
+	req.AddCookie(&http.Cookie{Name: "lumi_live_tenant_id", Value: "tenant-cookie"})
+
+	next, bearer := liveRequestWithBrowserAuth(req)
+
+	if bearer != "cookie-token" {
+		t.Fatalf("bearer = %q", bearer)
+	}
+	if got := next.Header.Get("X-GoClaw-User-Id"); got != "user-cookie" {
+		t.Fatalf("user header = %q", got)
+	}
+	if got := next.Header.Get("X-GoClaw-Tenant-Id"); got != "tenant-cookie" {
+		t.Fatalf("tenant header = %q", got)
+	}
+}
+
+func TestLiveRequestWithBrowserAuthPreservesExplicitHeaders(t *testing.T) {
+	req := httptest.NewRequest("GET", "/v1/closy/live/gemini/ws?token=query-token", nil)
+	req.Header.Set("Authorization", "Bearer header-token")
+	req.Header.Set("X-GoClaw-User-Id", "header-user")
+	req.Header.Set("X-GoClaw-Tenant-Id", "header-tenant")
+	req.AddCookie(&http.Cookie{Name: "lumi_live_token", Value: "cookie-token"})
+	req.AddCookie(&http.Cookie{Name: "lumi_live_user_id", Value: "cookie-user"})
+	req.AddCookie(&http.Cookie{Name: "lumi_live_tenant_id", Value: "cookie-tenant"})
+
+	next, bearer := liveRequestWithBrowserAuth(req)
+
+	if bearer != "header-token" {
+		t.Fatalf("bearer = %q", bearer)
+	}
+	if got := next.Header.Get("X-GoClaw-User-Id"); got != "header-user" {
+		t.Fatalf("user header = %q", got)
+	}
+	if got := next.Header.Get("X-GoClaw-Tenant-Id"); got != "header-tenant" {
+		t.Fatalf("tenant header = %q", got)
+	}
+}
+
+func TestLiveRequestWithBrowserAuthSupportsConfiguredCookieNames(t *testing.T) {
+	t.Setenv("GOCLAW_LIVE_TOKEN_COOKIE_NAME", "goclaw_token")
+	t.Setenv("GOCLAW_LIVE_USER_COOKIE_NAME", "goclaw_user")
+	t.Setenv("GOCLAW_LIVE_TENANT_COOKIE_NAME", "goclaw_tenant")
+	req := httptest.NewRequest("GET", "/v1/closy/live/gemini/ws", nil)
+	req.AddCookie(&http.Cookie{Name: "goclaw_token", Value: "custom-token"})
+	req.AddCookie(&http.Cookie{Name: "goclaw_user", Value: "custom-user"})
+	req.AddCookie(&http.Cookie{Name: "goclaw_tenant", Value: "custom-tenant"})
+
+	next, bearer := liveRequestWithBrowserAuth(req)
+
+	if bearer != "custom-token" {
+		t.Fatalf("bearer = %q", bearer)
+	}
+	if got := next.Header.Get("X-GoClaw-User-Id"); got != "custom-user" {
+		t.Fatalf("user header = %q", got)
+	}
+	if got := next.Header.Get("X-GoClaw-Tenant-Id"); got != "custom-tenant" {
+		t.Fatalf("tenant header = %q", got)
 	}
 }
 
