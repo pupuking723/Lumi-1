@@ -164,6 +164,7 @@ func (s *Server) BuildMux() *http.ServeMux {
 		chatHandler.SetPostTurnProcessor(s.postTurn)
 	}
 	mux.Handle("/v1/chat/completions", chatHandler)
+	httpapi.NewChatMessagesHandler(s.sessions).RegisterRoutes(mux)
 
 	// OpenResponses protocol
 	responsesHandler := httpapi.NewResponsesHandler(s.agents, s.sessions)
@@ -731,6 +732,7 @@ func StartTestServer(s *Server, ctx context.Context) (addr string, start func())
 		chatHandler.SetPostTurnProcessor(s.postTurn)
 	}
 	mux.Handle("/v1/chat/completions", chatHandler)
+	httpapi.NewChatMessagesHandler(s.sessions).RegisterRoutes(mux)
 
 	responsesHandler := httpapi.NewResponsesHandler(s.agents, s.sessions)
 	if s.postTurn != nil {
