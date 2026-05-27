@@ -171,8 +171,11 @@ func TestGeminiLiveAccumulator(t *testing.T) {
 	if !complete {
 		t.Fatal("complete = false")
 	}
-	if len(events) != 3 {
+	if len(events) != 4 {
 		t.Fatalf("events = %#v", events)
+	}
+	if events[0].Type != "live_response_start" {
+		t.Fatalf("first event = %#v", events[0])
 	}
 	user, assistant := acc.flush()
 	if user != "hi" || assistant != "hello" {
@@ -314,7 +317,7 @@ func TestLiveRequestWithBrowserAuthSupportsConfiguredCookieNames(t *testing.T) {
 }
 
 func TestGeminiLiveRecordTurnStoresSessionMessages(t *testing.T) {
-	mgr := sessionspkg.NewManager("")
+	mgr := &saveCountingLiveSessionStore{Manager: sessionspkg.NewManager("")}
 	h := NewGeminiLiveHandler(nil, mgr)
 	rt := geminiLiveRuntimeContext{AgentKey: "closy", UserID: "u", SessionID: "agent:closy:live:direct:u"}
 
@@ -330,4 +333,17 @@ func TestGeminiLiveRecordTurnStoresSessionMessages(t *testing.T) {
 	if history[1].Role != "assistant" || history[1].Content != "hi there" {
 		t.Fatalf("assistant message = %#v", history[1])
 	}
+	if mgr.saves != 1 {
+		t.Fatalf("saves = %d, want 1", mgr.saves)
+	}
+}
+
+type saveCountingLiveSessionStore struct {
+	*sessionspkg.Manager
+	saves int
+}
+
+func (s *saveCountingLiveSessionStore) Save(ctx context.Context, key string) error {
+	s.saves++
+	return s.Manager.Save(ctx, key)
 }

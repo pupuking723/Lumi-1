@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -47,6 +48,7 @@ type GeminiLiveHandler struct {
 type geminiLiveSessionStore interface {
 	AddMessage(ctx context.Context, key string, msg providers.Message)
 	GetHistory(ctx context.Context, key string) []providers.Message
+	Save(ctx context.Context, key string) error
 }
 
 func NewGeminiLiveHandler(agents store.AgentStore, sessions geminiLiveSessionStore) *GeminiLiveHandler {
@@ -417,6 +419,7 @@ func (h *GeminiLiveHandler) geminiLiveUpstreamToClient(ctx context.Context, upst
 			if assistantText != "" {
 				_ = geminiLiveWriteClient(clientConn, clientWriteMu, geminiLiveEvent{Type: "message", SessionID: rt.SessionID, Role: "assistant", Content: assistantText})
 			}
+			_ = geminiLiveWriteClient(clientConn, clientWriteMu, geminiLiveEvent{Type: "live_response_end", SessionID: rt.SessionID})
 		}
 		select {
 		case <-ctx.Done():
@@ -430,11 +433,17 @@ func (h *GeminiLiveHandler) recordTurn(ctx context.Context, rt geminiLiveRuntime
 	if h == nil || h.sessions == nil {
 		return
 	}
+	wrote := false
 	if strings.TrimSpace(userText) != "" {
 		h.sessions.AddMessage(ctx, rt.SessionID, providers.Message{Role: "user", Content: strings.TrimSpace(userText)})
+		wrote = true
 	}
 	if strings.TrimSpace(assistantText) != "" {
 		h.sessions.AddMessage(ctx, rt.SessionID, providers.Message{Role: "assistant", Content: strings.TrimSpace(assistantText)})
+		wrote = true
+	}
+	if wrote {
+		h.saveLiveSession(ctx, rt.SessionID)
 	}
 	if rt.AgentKey == closy.AgentKey && strings.TrimSpace(userText) != "" && h.agents != nil && h.memory != nil {
 		if ag, err := h.agents.GetByKey(ctx, rt.AgentKey); err == nil && ag != nil {
@@ -446,6 +455,15 @@ func (h *GeminiLiveHandler) recordTurn(ctx context.Context, rt geminiLiveRuntime
 				SessionKey:       rt.SessionID,
 			})
 		}
+	}
+}
+
+func (h *GeminiLiveHandler) saveLiveSession(ctx context.Context, sessionID string) {
+	if h == nil || h.sessions == nil || strings.TrimSpace(sessionID) == "" {
+		return
+	}
+	if err := h.sessions.Save(ctx, sessionID); err != nil {
+		slog.Warn("gemini_live.session_save_failed", "session", sessionID, "error", err)
 	}
 }
 
@@ -461,6 +479,7 @@ func (h *GeminiLiveHandler) recordMedia(ctx context.Context, rt geminiLiveRuntim
 		Path:     asset.StorageKey,
 	}
 	h.sessions.AddMessage(ctx, rt.SessionID, providers.Message{Role: "user", Content: content, MediaRefs: []providers.MediaRef{ref}})
+	h.saveLiveSession(ctx, rt.SessionID)
 }
 
 func geminiLiveWriteClient(conn *websocket.Conn, mu *sync.Mutex, event geminiLiveEvent) error {
@@ -652,6 +671,7 @@ type geminiLiveAccumulator struct {
 	input            strings.Builder
 	output           strings.Builder
 	outputSuppressed bool
+	outputActive     bool
 }
 
 func (a *geminiLiveAccumulator) consume(message map[string]any, outputMIME string) ([]geminiLiveEvent, bool, error) {
@@ -670,6 +690,7 @@ func (a *geminiLiveAccumulator) consume(message map[string]any, outputMIME strin
 	if interrupted, _ := content["interrupted"].(bool); interrupted {
 		a.output.Reset()
 		a.outputSuppressed = true
+		a.outputActive = false
 		events = append(events, geminiLiveEvent{Type: "live_interrupted"})
 	}
 	if input := geminiLiveTranscriptionText(content, "inputTranscription"); input != "" && !geminiLiveIsNoisyInputTranscript(input) {
@@ -677,11 +698,21 @@ func (a *geminiLiveAccumulator) consume(message map[string]any, outputMIME strin
 		events = append(events, geminiLiveEvent{Type: "live_transcript", Role: "user", Content: input, Data: geminiLiveJSON(map[string]any{"source": "input", "final": false})})
 	}
 	if !a.outputSuppressed {
+		outputStarted := false
 		if output := geminiLiveTranscriptionText(content, "outputTranscription"); output != "" {
 			a.output.WriteString(output)
+			outputStarted = true
 			events = append(events, geminiLiveEvent{Type: "live_transcript", Role: "assistant", Content: output, Data: geminiLiveJSON(map[string]any{"source": "output", "final": false})})
 		}
-		for _, audio := range geminiLiveOutputAudioParts(content, outputMIME) {
+		audioParts := geminiLiveOutputAudioParts(content, outputMIME)
+		if len(audioParts) > 0 {
+			outputStarted = true
+		}
+		if outputStarted && !a.outputActive {
+			a.outputActive = true
+			events = append([]geminiLiveEvent{{Type: "live_response_start"}}, events...)
+		}
+		for _, audio := range audioParts {
 			events = append(events, geminiLiveEvent{Type: "live_audio", Role: "assistant", Data: geminiLiveJSON(audio)})
 		}
 	}
@@ -695,6 +726,7 @@ func (a *geminiLiveAccumulator) flush() (string, string) {
 	a.input.Reset()
 	a.output.Reset()
 	a.outputSuppressed = false
+	a.outputActive = false
 	return userText, assistantText
 }
 
