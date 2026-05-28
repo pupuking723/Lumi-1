@@ -108,3 +108,30 @@ func TestPersistMedia_NamingScheme(t *testing.T) {
 		})
 	}
 }
+
+func TestPersistMediaKeepsObjectBackedRefsRemote(t *testing.T) {
+	workspace := t.TempDir()
+	local := filepath.Join(t.TempDir(), "look.png")
+	if err := os.WriteFile(local, []byte("image"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	var loop Loop
+	refs := loop.persistMedia("session-key-test", []bus.MediaFile{{
+		ID:        "media-1",
+		Path:      local,
+		SourceURL: "https://oss.example.com/chat-media/look.png",
+		MimeType:  "image/png",
+		Filename:  "look.png",
+	}}, workspace)
+
+	if len(refs) != 1 {
+		t.Fatalf("got %d refs, want 1", len(refs))
+	}
+	if refs[0].ID != "media-1" || refs[0].Path != "https://oss.example.com/chat-media/look.png" {
+		t.Fatalf("ref = %#v", refs[0])
+	}
+	if matches, err := filepath.Glob(filepath.Join(workspace, ".uploads", "*")); err != nil || len(matches) != 0 {
+		t.Fatalf("object-backed media should not be copied to .uploads, matches=%v err=%v", matches, err)
+	}
+}

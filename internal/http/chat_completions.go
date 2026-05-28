@@ -432,16 +432,19 @@ func (h *ChatCompletionsHandler) resolveAttachments(ctx context.Context, attachm
 			mimeType = mediapkg.DetectMIMEType(asset.OriginalFilename)
 		}
 		kind := mediapkg.MediaKindFromMime(mimeType)
+		sourceURL := mediaAssetURL(ctx, h.objectStore, asset)
 		files = append(files, bus.MediaFile{
-			ID:       att.MediaID,
-			Path:     localPath,
-			MimeType: mimeType,
-			Filename: asset.OriginalFilename,
+			ID:        att.MediaID,
+			Path:      localPath,
+			SourceURL: sourceURL,
+			MimeType:  mimeType,
+			Filename:  asset.OriginalFilename,
 		})
 		infos = append(infos, mediapkg.MediaInfo{
 			Type:        kind,
 			FilePath:    localPath,
 			FileID:      att.MediaID,
+			SourceURL:   sourceURL,
 			ContentType: mimeType,
 			FileName:    asset.OriginalFilename,
 			FileSize:    asset.Size,

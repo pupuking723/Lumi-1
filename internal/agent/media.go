@@ -260,6 +260,18 @@ func loadImages(files []bus.MediaFile) []providers.ImageContent {
 	return images
 }
 
+func runtimeMediaPathForRef(ref providers.MediaRef, files []bus.MediaFile) (string, string) {
+	for _, f := range files {
+		if ref.ID != "" && f.ID == ref.ID && f.Path != "" {
+			return f.Path, f.Filename
+		}
+	}
+	if strings.HasPrefix(ref.Path, "http://") || strings.HasPrefix(ref.Path, "https://") {
+		return "", ""
+	}
+	return ref.Path, filepath.Base(ref.Path)
+}
+
 // persistMedia sanitizes images, saves all media files to the per-user workspace
 // .uploads/ directory, and returns lightweight MediaRefs with persisted paths.
 // All media types (images, documents, audio, video) are stored within the user's
@@ -290,6 +302,15 @@ func (l *Loop) persistMedia(sessionKey string, files []bus.MediaFile, workspace 
 			mime = mimeFromExt(filepath.Ext(f.Path))
 		}
 		kind := mediaKindFromMime(mime)
+		if f.ID != "" && f.SourceURL != "" {
+			refs = append(refs, providers.MediaRef{
+				ID:       f.ID,
+				MimeType: mime,
+				Kind:     kind,
+				Path:     f.SourceURL,
+			})
+			continue
+		}
 
 		// Sanitize images before persistent storage.
 		srcPath := f.Path
@@ -529,17 +550,22 @@ func (l *Loop) enrichImageIDs(messages []providers.Message, refs []providers.Med
 			continue
 		}
 		idAttr := fmt.Sprintf(" id=%q", ref.ID)
-		pathAttr := ""
-		if ref.Path != "" {
-			pathAttr = fmt.Sprintf(" path=%q", ref.Path)
-		}
 
 		content, _ = replaceFirstMediaTag(content, "<media:image", func(tag string) bool {
 			return !tagHasAttr(tag, "id")
 		}, func(tag string) string {
 			attrs := []string{idAttr}
-			if pathAttr != "" {
-				attrs = append(attrs, pathAttr)
+			if ref.Path != "" {
+				switch {
+				case strings.HasPrefix(ref.Path, "http://"), strings.HasPrefix(ref.Path, "https://"):
+					if !tagHasAttr(tag, "url") {
+						attrs = append(attrs, fmt.Sprintf(" url=%q", ref.Path))
+					}
+				default:
+					if !tagHasAttr(tag, "path") {
+						attrs = append(attrs, fmt.Sprintf(" path=%q", ref.Path))
+					}
+				}
 			}
 			return appendTagAttrs(tag, attrs...)
 		})

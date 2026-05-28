@@ -11,10 +11,11 @@ import (
 // MediaFile represents an inbound media file with its MIME type.
 // Used throughout the media pipeline to preserve content type from channel download to storage.
 type MediaFile struct {
-	ID       string `json:"id,omitempty"` // optional stable media asset ID from upload storage
-	Path     string `json:"path"`
-	MimeType string `json:"mime_type,omitempty"` // e.g. "application/pdf", "image/jpeg"
-	Filename string `json:"filename,omitempty"`  // original user-provided filename, e.g. "Báo cáo Q4.pdf"; empty → UUID fallback in persistMedia
+	ID        string `json:"id,omitempty"`         // optional stable media asset ID from upload storage
+	Path      string `json:"path"`                 // runtime-local path used by provider/tool readers
+	SourceURL string `json:"source_url,omitempty"` // durable remote URL for object-backed media history
+	MimeType  string `json:"mime_type,omitempty"`  // e.g. "application/pdf", "image/jpeg"
+	Filename  string `json:"filename,omitempty"`   // original user-provided filename, e.g. "Báo cáo Q4.pdf"; empty → UUID fallback in persistMedia
 }
 
 // InboundMessage represents a message received from a channel (Telegram, Discord, etc.)

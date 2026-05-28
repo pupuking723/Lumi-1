@@ -76,11 +76,19 @@ func (l *Loop) enrichInputMedia(ctx context.Context, req *RunRequest, messages [
 			}
 		}
 
-		// Load current-turn images from persisted refs (Path is always set for new uploads).
+		// Load current-turn images from runtime-local files. Object-backed C-side
+		// uploads keep the durable ref as an OSS URL, while the provider still
+		// needs the temporary local file for this run.
 		var imageFiles []bus.MediaFile
 		for _, ref := range mediaRefs {
-			if ref.Kind == "image" && ref.Path != "" {
-				imageFiles = append(imageFiles, bus.MediaFile{Path: ref.Path, MimeType: ref.MimeType, Filename: filepath.Base(ref.Path)})
+			if ref.Kind != "image" {
+				continue
+			}
+			if p, name := runtimeMediaPathForRef(ref, req.Media); p != "" {
+				if name == "" {
+					name = filepath.Base(p)
+				}
+				imageFiles = append(imageFiles, bus.MediaFile{Path: p, MimeType: ref.MimeType, Filename: name})
 			}
 		}
 		if deferToReadImageTool {
@@ -146,6 +154,9 @@ func (l *Loop) enrichInputMedia(ctx context.Context, req *RunRequest, messages [
 		for _, ref := range mediaRefs {
 			// Prefer workspace-local path (.uploads/) over canonical .media/ path.
 			if ref.Path != "" {
+				if strings.HasPrefix(ref.Path, "http://") || strings.HasPrefix(ref.Path, "https://") {
+					continue
+				}
 				mediaPaths = append(mediaPaths, ref.Path)
 			} else if p, err := l.mediaStore.LoadPath(ref.ID); err == nil {
 				mediaPaths = append(mediaPaths, p)

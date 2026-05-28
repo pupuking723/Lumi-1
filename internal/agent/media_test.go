@@ -32,6 +32,23 @@ func TestEnrichImageIDs_BareTag(t *testing.T) {
 	}
 }
 
+func TestEnrichImageIDsUsesURLForRemoteRefs(t *testing.T) {
+	messages := []providers.Message{{
+		Role:    "user",
+		Content: `check <media:image>`,
+	}}
+	refs := []providers.MediaRef{{ID: "img-1", Kind: "image", Path: "https://cdn.example.com/a.jpg"}}
+
+	var loop Loop
+	loop.enrichImageIDs(messages, refs)
+
+	got := messages[0].Content
+	want := `check <media:image id="img-1" url="https://cdn.example.com/a.jpg">`
+	if got != want {
+		t.Fatalf("remote tag enrichment:\n got %q\nwant %q", got, want)
+	}
+}
+
 func TestEnrichImageIDs_PreservesExistingTagAttributes(t *testing.T) {
 	messages := []providers.Message{{
 		Role:    "user",
