@@ -9,11 +9,18 @@ permissions:
   contents: read
   packages: write
 
+concurrency:
+  group: goclaw-image-main
+  cancel-in-progress: false
+
 env:
   IMAGE_NAME: ghcr.io/yige666s/goclaw
+  DEPLOY_HOST: 216.128.159.73
+  DEPLOY_DIR: /opt/lumi-pro
 
 jobs:
   build:
+    name: Build and push image
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -39,3 +46,47 @@ jobs:
             ENABLE_PYTHON=true
             ENABLE_FULL_SKILLS=false
             VERSION=${{ github.sha }}
+
+  deploy:
+    name: Deploy to test server
+    runs-on: ubuntu-latest
+    needs: build
+    timeout-minutes: 20
+    steps:
+      - name: Configure SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_SSH_KEY"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$DEPLOY_PORT" "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+      - name: Pull and restart GoClaw
+        env:
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER || 'root' }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$GHCR_TOKEN" | ssh \
+            -i ~/.ssh/deploy_key \
+            -p "$DEPLOY_PORT" \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=20 \
+            -o TCPKeepAlive=yes \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "set -euo pipefail
+             read -r ghcr_token
+             printf '%s' \"\$ghcr_token\" | docker login ghcr.io -u '$GHCR_USER' --password-stdin >/dev/null
+             unset ghcr_token
+             cd '$DEPLOY_DIR'
+             docker compose pull goclaw
+             docker compose up -d --force-recreate goclaw
+             docker image prune -f"
