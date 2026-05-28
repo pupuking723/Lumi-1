@@ -35,7 +35,7 @@ jobs:
             ${{ env.IMAGE_NAME }}:latest
             ${{ env.IMAGE_NAME }}:${{ github.sha }}
           build-args: |
-            ENABLE_EMBEDUI=false
+            ENABLE_EMBEDUI=true
             ENABLE_PYTHON=true
             ENABLE_FULL_SKILLS=false
             VERSION=${{ github.sha }}
