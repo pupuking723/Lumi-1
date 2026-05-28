@@ -13,6 +13,7 @@ Usage:
 
 Options:
   --dsn DSN             Postgres DSN. Defaults to GOCLAW_POSTGRES_DSN.
+  --pg-container NAME   Run psql through an existing Docker Postgres container.
   --tenant VALUE        Tenant UUID or slug. "default" maps to "master".
                         Default: master
   --agent KEY           Agent key to export. May be repeated. Default: closy
@@ -20,14 +21,20 @@ Options:
                         Default: all enabled tenant providers plus selected agents' providers.
   --include-secrets     Also export tenant config_secrets. Provider api_key is always exported
                         from llm_providers because providers are part of this bundle.
+  --source-encryption-key KEY
+                        Source GOCLAW_ENCRYPTION_KEY for decrypting provider api_key values.
+  --target-encryption-key KEY
+                        Target GOCLAW_ENCRYPTION_KEY for re-encrypting provider api_key values.
+                        Use this when moving data between environments with different keys.
   -o, --output PATH     Export output path.
   -i, --input PATH      Import input path.
   -h, --help            Show this help.
 
 Notes:
   - Run migrations before importing.
-  - llm_providers.api_key is exported exactly as stored. If it is encrypted,
-    the target runtime must use the same GOCLAW_ENCRYPTION_KEY.
+  - llm_providers.api_key is exported exactly as stored unless both encryption
+    key options are provided. If it is encrypted and not re-encrypted, the
+    target runtime must use the same GOCLAW_ENCRYPTION_KEY.
   - Import uses upsert and does not delete rows that are absent from the export.
 EOF
 }
@@ -40,6 +47,7 @@ die() {
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PSQL_MODE=""
+PG_CONTAINER="${GOCLAW_PG_CONTAINER:-}"
 
 MODE="${1:-}"
 if [[ -z "$MODE" || "$MODE" == "-h" || "$MODE" == "--help" ]]; then
@@ -53,6 +61,8 @@ TENANT="master"
 OUTPUT=""
 INPUT=""
 INCLUDE_SECRETS=0
+SOURCE_ENCRYPTION_KEY="${SOURCE_GOCLAW_ENCRYPTION_KEY:-${GOCLAW_SOURCE_ENCRYPTION_KEY:-}}"
+TARGET_ENCRYPTION_KEY="${TARGET_GOCLAW_ENCRYPTION_KEY:-${GOCLAW_TARGET_ENCRYPTION_KEY:-}}"
 AGENTS=()
 PROVIDERS=()
 
@@ -60,6 +70,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --dsn)
       DSN="${2:-}"
+      shift 2
+      ;;
+    --pg-container)
+      PG_CONTAINER="${2:-}"
       shift 2
       ;;
     --tenant)
@@ -77,6 +91,14 @@ while [[ $# -gt 0 ]]; do
     --include-secrets)
       INCLUDE_SECRETS=1
       shift
+      ;;
+    --source-encryption-key)
+      SOURCE_ENCRYPTION_KEY="${2:-}"
+      shift 2
+      ;;
+    --target-encryption-key)
+      TARGET_ENCRYPTION_KEY="${2:-}"
+      shift 2
       ;;
     -o|--output)
       OUTPUT="${2:-}"
@@ -115,6 +137,17 @@ else
 fi
 
 init_psql() {
+  if [[ -n "$PG_CONTAINER" ]]; then
+    if ! command -v docker >/dev/null 2>&1; then
+      die "--pg-container requires docker"
+    fi
+    if ! docker ps --format '{{.Names}}' | grep -Fxq "$PG_CONTAINER"; then
+      die "Postgres container is not running: $PG_CONTAINER"
+    fi
+    PSQL_MODE="docker_container"
+    return
+  fi
+
   if command -v psql >/dev/null 2>&1; then
     PSQL_MODE="local"
     return
@@ -146,10 +179,26 @@ psql_base() {
         -f "$REPO_ROOT/deploy/compose/docker-compose.postgres.yml" \
         exec -T postgres psql "$DSN" -X -v ON_ERROR_STOP=1 "$@"
       ;;
+    docker_container)
+      docker exec -i "$PG_CONTAINER" psql "$DSN" -X -v ON_ERROR_STOP=1 "$@"
+      ;;
     *)
       die "psql backend not initialized"
       ;;
   esac
+}
+
+maybe_reencrypt_provider_payload() {
+  local json="$1"
+  if [[ -z "$SOURCE_ENCRYPTION_KEY" && -z "$TARGET_ENCRYPTION_KEY" ]]; then
+    printf "%s" "$json"
+    return
+  fi
+  [[ -n "$TARGET_ENCRYPTION_KEY" ]] || die "--target-encryption-key is required when re-encrypting provider keys"
+  printf "%s" "$json" | (cd "$REPO_ROOT" && go run ./scripts/essential-data-crypt.go \
+    --source-key "$SOURCE_ENCRYPTION_KEY" \
+    --target-key "$TARGET_ENCRYPTION_KEY" \
+    --field api_key)
 }
 
 tenant_expr="CASE WHEN :'tenant' IN ('', 'default') THEN 'master' ELSE :'tenant' END"
@@ -191,7 +240,7 @@ payload_json() {
         JOIN selected_tenant t ON t.id = tu.tenant_id;"
       ;;
     llm_providers)
-      json_query "
+      maybe_reencrypt_provider_payload "$(json_query "
         WITH selected_tenant AS (
           SELECT id FROM tenants WHERE id::text = ($tenant_expr) OR slug = ($tenant_expr) LIMIT 1
         ),
@@ -216,7 +265,7 @@ payload_json() {
         SELECT COALESCE(jsonb_agg(to_jsonb(p) ORDER BY p.name), '[]'::jsonb)::text
         FROM llm_providers p
         JOIN selected_tenant t ON t.id = p.tenant_id
-        WHERE p.name IN (SELECT name FROM selected_provider_names WHERE name <> '');"
+        WHERE p.name IN (SELECT name FROM selected_provider_names WHERE name <> '');")"
       ;;
     agents)
       json_query "
@@ -259,6 +308,86 @@ payload_json() {
         )
         SELECT COALESCE(jsonb_agg(to_jsonb(p) ORDER BY p.agent_id, p.scope, p.config_type, p.user_id), '[]'::jsonb)::text
         FROM agent_config_permissions p
+        JOIN selected_agents a ON a.id = p.agent_id;"
+      ;;
+    user_agent_profiles)
+      json_query "
+        WITH selected_tenant AS (
+          SELECT id FROM tenants WHERE id::text = ($tenant_expr) OR slug = ($tenant_expr) LIMIT 1
+        ),
+        selected_agents AS (
+          SELECT a.id
+          FROM agents a
+          JOIN selected_tenant t ON t.id = a.tenant_id
+          WHERE a.deleted_at IS NULL
+            AND a.agent_key = ANY(string_to_array(:'agents', ','))
+        )
+        SELECT COALESCE(jsonb_agg(to_jsonb(p) ORDER BY p.agent_id, p.user_id), '[]'::jsonb)::text
+        FROM user_agent_profiles p
+        JOIN selected_agents a ON a.id = p.agent_id;"
+      ;;
+    agent_heartbeats)
+      json_query "
+        WITH selected_tenant AS (
+          SELECT id FROM tenants WHERE id::text = ($tenant_expr) OR slug = ($tenant_expr) LIMIT 1
+        ),
+        selected_agents AS (
+          SELECT a.id
+          FROM agents a
+          JOIN selected_tenant t ON t.id = a.tenant_id
+          WHERE a.deleted_at IS NULL
+            AND a.agent_key = ANY(string_to_array(:'agents', ','))
+        )
+        SELECT COALESCE(jsonb_agg(to_jsonb(h) ORDER BY h.agent_id), '[]'::jsonb)::text
+        FROM agent_heartbeats h
+        JOIN selected_agents a ON a.id = h.agent_id;"
+      ;;
+    cron_jobs)
+      json_query "
+        WITH selected_tenant AS (
+          SELECT id FROM tenants WHERE id::text = ($tenant_expr) OR slug = ($tenant_expr) LIMIT 1
+        ),
+        selected_agents AS (
+          SELECT a.id
+          FROM agents a
+          JOIN selected_tenant t ON t.id = a.tenant_id
+          WHERE a.deleted_at IS NULL
+            AND a.agent_key = ANY(string_to_array(:'agents', ','))
+        )
+        SELECT COALESCE(jsonb_agg(to_jsonb(j) ORDER BY j.agent_id, j.name), '[]'::jsonb)::text
+        FROM cron_jobs j
+        JOIN selected_agents a ON a.id = j.agent_id;"
+      ;;
+    closy_profiles)
+      json_query "
+        WITH selected_tenant AS (
+          SELECT id FROM tenants WHERE id::text = ($tenant_expr) OR slug = ($tenant_expr) LIMIT 1
+        ),
+        selected_agents AS (
+          SELECT a.id
+          FROM agents a
+          JOIN selected_tenant t ON t.id = a.tenant_id
+          WHERE a.deleted_at IS NULL
+            AND a.agent_key = ANY(string_to_array(:'agents', ','))
+        )
+        SELECT COALESCE(jsonb_agg(to_jsonb(p) ORDER BY p.agent_id, p.user_id), '[]'::jsonb)::text
+        FROM closy_profiles p
+        JOIN selected_agents a ON a.id = p.agent_id;"
+      ;;
+    closy_style_preferences)
+      json_query "
+        WITH selected_tenant AS (
+          SELECT id FROM tenants WHERE id::text = ($tenant_expr) OR slug = ($tenant_expr) LIMIT 1
+        ),
+        selected_agents AS (
+          SELECT a.id
+          FROM agents a
+          JOIN selected_tenant t ON t.id = a.tenant_id
+          WHERE a.deleted_at IS NULL
+            AND a.agent_key = ANY(string_to_array(:'agents', ','))
+        )
+        SELECT COALESCE(jsonb_agg(to_jsonb(p) ORDER BY p.agent_id, p.user_id, p.category, p.polarity, p.value), '[]'::jsonb)::text
+        FROM closy_style_preferences p
         JOIN selected_agents a ON a.id = p.agent_id;"
       ;;
     builtin_tools)
@@ -457,6 +586,13 @@ JOIN agents a
  AND a.agent_key = s.agent_key
  AND a.deleted_at IS NULL;
 
+CREATE TEMP TABLE _goclaw_seed_provider_id_map ON COMMIT DROP AS
+SELECT s.id AS exported_id, p.id AS live_id
+FROM jsonb_populate_recordset(NULL::llm_providers, pg_temp._goclaw_payload('llm_providers')) AS s
+JOIN llm_providers p
+  ON p.tenant_id = s.tenant_id
+ AND p.name = s.name;
+
 DO $goclaw_seed$
 DECLARE
   payload jsonb;
@@ -492,6 +628,89 @@ BEGIN
     '',
     ARRAY['id']
   );
+
+  WITH mapped AS (
+    SELECT to_jsonb(r) || jsonb_build_object('agent_id', m.live_id) AS row_json
+    FROM jsonb_populate_recordset(NULL::user_agent_profiles, pg_temp._goclaw_payload('user_agent_profiles')) AS r
+    JOIN _goclaw_seed_agent_id_map m ON m.exported_id = r.agent_id
+  )
+  SELECT COALESCE(jsonb_agg(row_json), '[]'::jsonb) INTO payload
+  FROM mapped;
+
+  PERFORM pg_temp._goclaw_upsert_json(
+    'user_agent_profiles',
+    payload,
+    '(agent_id, user_id)',
+    '',
+    ARRAY['agent_id', 'user_id']
+  );
+
+  WITH mapped AS (
+    SELECT to_jsonb(r)
+      || jsonb_build_object('agent_id', m.live_id)
+      || CASE WHEN pm.live_id IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('provider_id', pm.live_id) END AS row_json
+    FROM jsonb_populate_recordset(NULL::agent_heartbeats, pg_temp._goclaw_payload('agent_heartbeats')) AS r
+    JOIN _goclaw_seed_agent_id_map m ON m.exported_id = r.agent_id
+    LEFT JOIN _goclaw_seed_provider_id_map pm ON pm.exported_id = r.provider_id
+  )
+  SELECT COALESCE(jsonb_agg(row_json), '[]'::jsonb) INTO payload
+  FROM mapped;
+
+  PERFORM pg_temp._goclaw_upsert_json(
+    'agent_heartbeats',
+    payload,
+    '(agent_id)',
+    '',
+    ARRAY['id']
+  );
+
+  WITH mapped AS (
+    SELECT to_jsonb(r) || jsonb_build_object('agent_id', m.live_id) AS row_json
+    FROM jsonb_populate_recordset(NULL::cron_jobs, pg_temp._goclaw_payload('cron_jobs')) AS r
+    JOIN _goclaw_seed_agent_id_map m ON m.exported_id = r.agent_id
+  )
+  SELECT COALESCE(jsonb_agg(row_json), '[]'::jsonb) INTO payload
+  FROM mapped;
+
+  PERFORM pg_temp._goclaw_upsert_json(
+    'cron_jobs',
+    payload,
+    '(agent_id, tenant_id, name)',
+    '',
+    ARRAY['id']
+  );
+
+  WITH mapped AS (
+    SELECT to_jsonb(r) || jsonb_build_object('agent_id', m.live_id) AS row_json
+    FROM jsonb_populate_recordset(NULL::closy_profiles, pg_temp._goclaw_payload('closy_profiles')) AS r
+    JOIN _goclaw_seed_agent_id_map m ON m.exported_id = r.agent_id
+  )
+  SELECT COALESCE(jsonb_agg(row_json), '[]'::jsonb) INTO payload
+  FROM mapped;
+
+  PERFORM pg_temp._goclaw_upsert_json(
+    'closy_profiles',
+    payload,
+    '(tenant_id, user_id, agent_id)',
+    '',
+    ARRAY['id']
+  );
+
+  WITH mapped AS (
+    SELECT to_jsonb(r) || jsonb_build_object('agent_id', m.live_id) AS row_json
+    FROM jsonb_populate_recordset(NULL::closy_style_preferences, pg_temp._goclaw_payload('closy_style_preferences')) AS r
+    JOIN _goclaw_seed_agent_id_map m ON m.exported_id = r.agent_id
+  )
+  SELECT COALESCE(jsonb_agg(row_json), '[]'::jsonb) INTO payload
+  FROM mapped;
+
+  PERFORM pg_temp._goclaw_upsert_json(
+    'closy_style_preferences',
+    payload,
+    '(tenant_id, user_id, agent_id, category, polarity, value)',
+    '',
+    ARRAY['id']
+  );
 END
 $goclaw_seed$;
 
@@ -521,6 +740,11 @@ do_export() {
     agents
     agent_context_files
     agent_config_permissions
+    user_agent_profiles
+    agent_heartbeats
+    cron_jobs
+    closy_profiles
+    closy_style_preferences
   )
   local table json
   for table in "${tables[@]}"; do
