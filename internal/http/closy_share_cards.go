@@ -30,6 +30,7 @@ func (h *ClosyShareCardsHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/closy/share-cards", h.handleCreate)
 	mux.HandleFunc("GET /v1/closy/share-cards", h.handleList)
 	mux.HandleFunc("GET /v1/closy/share-cards/{id}", h.handleGet)
+	mux.HandleFunc("POST /v1/closy/ootd/reports/{id}/share-card", h.handleCreateReportShareCard)
 	mux.HandleFunc("GET /s/closy/{slug}", h.handlePublicSlug)
 }
 
@@ -44,6 +45,14 @@ type closyShareCardCreateRequest struct {
 type closyShareCardResponse struct {
 	Card    *store.ClosyShareCardData `json:"card"`
 	Payload closy.ShareCardPayload    `json:"payload"`
+}
+
+type ootdReportShareCardResponse struct {
+	ID         string `json:"id"`
+	ReportID   string `json:"reportId"`
+	ShortURL   string `json:"shortUrl"`
+	QRImageURL string `json:"qrImageUrl"`
+	CreatedAt  string `json:"createdAt"`
 }
 
 func (h *ClosyShareCardsHandler) auth(r *http.Request, w http.ResponseWriter) (*http.Request, bool) {
@@ -133,6 +142,70 @@ func (h *ClosyShareCardsHandler) handleCreate(w http.ResponseWriter, r *http.Req
 		return
 	}
 	writeJSON(w, http.StatusOK, closyShareCardResponse{Card: card, Payload: payload})
+}
+
+func (h *ClosyShareCardsHandler) handleCreateReportShareCard(w http.ResponseWriter, r *http.Request) {
+	r, ok := h.auth(r, w)
+	if !ok {
+		return
+	}
+	if h == nil || h.reviews == nil || h.cards == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "closy share cards API is not configured"})
+		return
+	}
+	reportID, err := uuid.Parse(strings.TrimSpace(r.PathValue("id")))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid report id"})
+		return
+	}
+	review, err := h.reviews.GetClosyOOTDReview(r.Context(), reportID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if review == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "OOTD report not found"})
+		return
+	}
+	if _, err := ootdReportFromReview(review); err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "OOTD report not found"})
+		return
+	}
+	userID := store.UserIDFromContext(r.Context())
+	if userID != "" && review.UserID != "" && userID != review.UserID {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "user_id does not match OOTD report owner"})
+		return
+	}
+	slug := closy.NewShareSlug()
+	shortURL := absoluteRequestURL(r, "/s/closy/"+slug, nil)
+	payload := closy.BuildShareCardPayload(review, shortURL, "", absoluteRequestURL(r, "/", url.Values{
+		"from":      []string{"mochi_share"},
+		"report_id": []string{review.ID.String()},
+	}), time.Now().UTC())
+	payloadJSON, _ := json.Marshal(payload)
+	card, err := h.cards.CreateClosyShareCard(r.Context(), store.CreateClosyShareCardParams{
+		UserID:       review.UserID,
+		AgentID:      review.AgentID,
+		OOTDReviewID: review.ID,
+		MediaID:      review.MediaID,
+		Slug:         slug,
+		ShareURL:     shortURL,
+		CTAText:      payload.CTA.Text,
+		CTAURL:       payload.CTA.URL,
+		Payload:      payloadJSON,
+		Status:       store.ClosyShareCardStatusActive,
+	})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, ootdReportShareCardResponse{
+		ID:         card.ID.String(),
+		ReportID:   review.ID.String(),
+		ShortURL:   card.ShareURL,
+		QRImageURL: qrImageURL(card.ShareURL),
+		CreatedAt:  card.CreatedAt.UTC().Format(time.RFC3339),
+	})
 }
 
 func (h *ClosyShareCardsHandler) handleGet(w http.ResponseWriter, r *http.Request) {
@@ -241,4 +314,11 @@ func absoluteRequestURL(r *http.Request, path string, query url.Values) string {
 		u.RawQuery = query.Encode()
 	}
 	return u.String()
+}
+
+func qrImageURL(value string) string {
+	q := url.Values{}
+	q.Set("size", "160x160")
+	q.Set("data", value)
+	return "https://api.qrserver.com/v1/create-qr-code/?" + q.Encode()
 }

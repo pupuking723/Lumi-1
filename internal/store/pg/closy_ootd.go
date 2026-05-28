@@ -44,15 +44,15 @@ func (s *PGClosyOOTDStore) CreateClosyOOTDReview(ctx context.Context, p store.Cr
 		INSERT INTO closy_ootd_reviews (
 			id, tenant_id, user_id, agent_id, media_id, session_id, occasion, user_note,
 			overall_judgement, style_label, highlight, main_issue, suggestion, mochi_line,
-			safety_notes, raw_response, status, error_message, created_at, updated_at
+			safety_notes, raw_response, report_json, status, error_message, created_at, updated_at
 		) VALUES (
-			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20
+			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21
 		)`,
 		p.ID, tid, strings.TrimSpace(p.UserID), p.AgentID, p.MediaID, strings.TrimSpace(p.SessionID),
 		strings.TrimSpace(p.Occasion), strings.TrimSpace(p.UserNote), strings.TrimSpace(p.OverallJudgement),
 		strings.TrimSpace(p.StyleLabel), strings.TrimSpace(p.Highlight), strings.TrimSpace(p.MainIssue),
 		strings.TrimSpace(p.Suggestion), strings.TrimSpace(p.MochiLine), strings.TrimSpace(p.SafetyNotes),
-		strings.TrimSpace(p.RawResponse), p.Status, strings.TrimSpace(p.ErrorMessage), now, now,
+		strings.TrimSpace(p.RawResponse), nullableRawJSON(p.ReportJSON), p.Status, strings.TrimSpace(p.ErrorMessage), now, now,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create closy ootd review: %w", err)
@@ -66,23 +66,27 @@ func (s *PGClosyOOTDStore) GetClosyOOTDReview(ctx context.Context, id uuid.UUID)
 		tid = store.MasterTenantID
 	}
 	var r store.ClosyOOTDReviewData
+	var reportJSON sql.NullString
 	err := s.db.QueryRowContext(ctx, `
 		SELECT id, tenant_id, user_id, agent_id, media_id, session_id, occasion, user_note,
 		       overall_judgement, style_label, highlight, main_issue, suggestion, mochi_line,
-		       safety_notes, raw_response, status, error_message, created_at, updated_at
+		       safety_notes, raw_response, report_json, status, error_message, created_at, updated_at
 		  FROM closy_ootd_reviews
 		 WHERE id = $1 AND tenant_id = $2`,
 		id, tid,
 	).Scan(
 		&r.ID, &r.TenantID, &r.UserID, &r.AgentID, &r.MediaID, &r.SessionID, &r.Occasion, &r.UserNote,
 		&r.OverallJudgement, &r.StyleLabel, &r.Highlight, &r.MainIssue, &r.Suggestion, &r.MochiLine,
-		&r.SafetyNotes, &r.RawResponse, &r.Status, &r.ErrorMessage, &r.CreatedAt, &r.UpdatedAt,
+		&r.SafetyNotes, &r.RawResponse, &reportJSON, &r.Status, &r.ErrorMessage, &r.CreatedAt, &r.UpdatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get closy ootd review: %w", err)
+	}
+	if reportJSON.Valid && strings.TrimSpace(reportJSON.String) != "" {
+		r.ReportJSON = []byte(reportJSON.String)
 	}
 	return &r, nil
 }
@@ -100,7 +104,7 @@ func (s *PGClosyOOTDStore) ListClosyOOTDReviews(ctx context.Context, p store.Lis
 	query := `
 		SELECT id, tenant_id, user_id, agent_id, media_id, session_id, occasion, user_note,
 		       overall_judgement, style_label, highlight, main_issue, suggestion, mochi_line,
-		       safety_notes, raw_response, status, error_message, created_at, updated_at
+		       safety_notes, raw_response, report_json, status, error_message, created_at, updated_at
 		  FROM closy_ootd_reviews
 		 WHERE tenant_id = $1`
 	args := []any{tid}
@@ -124,12 +128,16 @@ func (s *PGClosyOOTDStore) ListClosyOOTDReviews(ctx context.Context, p store.Lis
 	var out []store.ClosyOOTDReviewData
 	for rows.Next() {
 		var r store.ClosyOOTDReviewData
+		var reportJSON sql.NullString
 		if err := rows.Scan(
 			&r.ID, &r.TenantID, &r.UserID, &r.AgentID, &r.MediaID, &r.SessionID, &r.Occasion, &r.UserNote,
 			&r.OverallJudgement, &r.StyleLabel, &r.Highlight, &r.MainIssue, &r.Suggestion, &r.MochiLine,
-			&r.SafetyNotes, &r.RawResponse, &r.Status, &r.ErrorMessage, &r.CreatedAt, &r.UpdatedAt,
+			&r.SafetyNotes, &r.RawResponse, &reportJSON, &r.Status, &r.ErrorMessage, &r.CreatedAt, &r.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan closy ootd review: %w", err)
+		}
+		if reportJSON.Valid && strings.TrimSpace(reportJSON.String) != "" {
+			r.ReportJSON = []byte(reportJSON.String)
 		}
 		out = append(out, r)
 	}
@@ -137,4 +145,11 @@ func (s *PGClosyOOTDStore) ListClosyOOTDReviews(ctx context.Context, p store.Lis
 		return nil, fmt.Errorf("iterate closy ootd reviews: %w", err)
 	}
 	return out, nil
+}
+
+func nullableRawJSON(data []byte) any {
+	if len(data) == 0 {
+		return nil
+	}
+	return data
 }

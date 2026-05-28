@@ -57,6 +57,7 @@ type Server struct {
 	mediaAssets    store.MediaAssetStore
 	objectStore    *media.ObjectStore
 	closyMemory    store.ClosyMemoryStore
+	closyOOTD      store.ClosyOOTDStore
 
 	upgrader    websocket.Upgrader
 	rateLimiter *RateLimiter
@@ -161,6 +162,9 @@ func (s *Server) BuildMux() *http.ServeMux {
 	}
 	if s.closyMemory != nil {
 		chatHandler.SetClosyMemoryStore(s.agentStore, s.closyMemory)
+	}
+	if s.closyOOTD != nil {
+		chatHandler.SetClosyOOTDStore(s.closyOOTD)
 	}
 	if s.rateLimiter.Enabled() {
 		chatHandler.SetRateLimiter(s.rateLimiter.Allow)
@@ -531,6 +535,9 @@ func (s *Server) SetObjectStore(st *media.ObjectStore) { s.objectStore = st }
 // SetClosyMemoryStore sets the Mochi domain memory store used by C-side chat.
 func (s *Server) SetClosyMemoryStore(st store.ClosyMemoryStore) { s.closyMemory = st }
 
+// SetClosyOOTDStore sets the OOTD report store used by C-side chat context.
+func (s *Server) SetClosyOOTDStore(st store.ClosyOOTDStore) { s.closyOOTD = st }
+
 // SetMediaServeHandler sets the media serve handler.
 func (s *Server) SetMediaServeHandler(h *httpapi.MediaServeHandler) {
 	s.handlers = append(s.handlers, h)
@@ -742,6 +749,9 @@ func StartTestServer(s *Server, ctx context.Context) (addr string, start func())
 	}
 	if s.closyMemory != nil {
 		chatHandler.SetClosyMemoryStore(s.agentStore, s.closyMemory)
+	}
+	if s.closyOOTD != nil {
+		chatHandler.SetClosyOOTDStore(s.closyOOTD)
 	}
 	if s.rateLimiter.Enabled() {
 		chatHandler.SetRateLimiter(s.rateLimiter.Allow)

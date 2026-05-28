@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -16,13 +17,16 @@ import (
 	"github.com/nextlevelbuilder/goclaw/internal/agent"
 	"github.com/nextlevelbuilder/goclaw/internal/closy"
 	"github.com/nextlevelbuilder/goclaw/internal/providers"
+	"github.com/nextlevelbuilder/goclaw/internal/skills"
 	"github.com/nextlevelbuilder/goclaw/internal/store"
 )
 
 type fakeOOTDAgent struct {
-	id      uuid.UUID
-	lastReq agent.RunRequest
-	content string
+	id       uuid.UUID
+	lastReq  agent.RunRequest
+	requests []agent.RunRequest
+	content  string
+	contents []string
 }
 
 func (f *fakeOOTDAgent) ID() string                   { return closy.AgentKey }
@@ -34,6 +38,12 @@ func (f *fakeOOTDAgent) ProviderName() string         { return "test" }
 func (f *fakeOOTDAgent) Provider() providers.Provider { return nil }
 func (f *fakeOOTDAgent) Run(_ context.Context, req agent.RunRequest) (*agent.RunResult, error) {
 	f.lastReq = req
+	f.requests = append(f.requests, req)
+	if len(f.contents) > 0 {
+		out := f.contents[0]
+		f.contents = f.contents[1:]
+		return &agent.RunResult{Content: out}, nil
+	}
 	return &agent.RunResult{Content: f.content}, nil
 }
 
@@ -70,6 +80,7 @@ func (f *fakeOOTDStore) CreateClosyOOTDReview(ctx context.Context, p store.Creat
 		RawResponse:      p.RawResponse,
 		Status:           p.Status,
 		ErrorMessage:     p.ErrorMessage,
+		ReportJSON:       p.ReportJSON,
 	}
 	f.created = r
 	if f.byID == nil {
@@ -123,7 +134,7 @@ func TestClosyOOTDHandlerCreateRunsAgentAndStoresReview(t *testing.T) {
 	router := agent.NewRouter()
 	router.SetResolver(func(context.Context, string) (agent.Agent, error) { return ag, nil })
 	reviews := &fakeOOTDStore{}
-	h := NewClosyOOTDHandler(router, assets, reviews, nil)
+	h := NewClosyOOTDHandler(router, assets, reviews, nil, nil)
 
 	body, _ := json.Marshal(map[string]any{
 		"media_id":   mediaID.String(),
@@ -150,4 +161,261 @@ func TestClosyOOTDHandlerCreateRunsAgentAndStoresReview(t *testing.T) {
 	if !strings.HasPrefix(reviews.created.SessionID, "agent:closy:cchat:direct:user-a-fit-1") {
 		t.Fatalf("session id = %q", reviews.created.SessionID)
 	}
+}
+
+func TestClosyOOTDHandlerCreateReportLoadsSkillAndStoresReportJSON(t *testing.T) {
+	InitGatewayToken("test-token")
+	t.Cleanup(func() { InitGatewayToken("") })
+
+	mediaID, assets := testOOTDMediaStore(t)
+	ag := &fakeOOTDAgent{id: uuid.New(), content: testOOTDReportJSON()}
+	router := agent.NewRouter()
+	router.SetResolver(func(context.Context, string) (agent.Agent, error) { return ag, nil })
+	reviews := &fakeOOTDStore{}
+	h := NewClosyOOTDHandler(router, assets, reviews, nil, testOOTDSkillsLoader(t))
+
+	body, _ := json.Marshal(map[string]any{
+		"media_id":   mediaID.String(),
+		"session_id": "fit-report-1",
+		"scene":      "daily",
+		"note":       "想像 Chance AI 那样直接一点",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/v1/closy/ootd/reports", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer test-token")
+	req.Header.Set("X-GoClaw-User-Id", "user-a")
+	rr := httptest.NewRecorder()
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if reviews.created == nil || len(reviews.created.ReportJSON) == 0 {
+		t.Fatalf("created = %#v", reviews.created)
+	}
+	if !strings.Contains(ag.lastReq.Message, "TEST OOTD SKILL") || !strings.Contains(ag.lastReq.Message, "todayJudgment") {
+		t.Fatalf("prompt = %s", ag.lastReq.Message)
+	}
+	if strings.Contains(ag.lastReq.SessionKey, "fit-report-1") {
+		t.Fatalf("report session should not reuse chat/request session: %q", ag.lastReq.SessionKey)
+	}
+	if !strings.Contains(ag.lastReq.SessionKey, "ootd-report-"+mediaID.String()) {
+		t.Fatalf("report session should be scoped to media id, got %q", ag.lastReq.SessionKey)
+	}
+	if reviews.created.SessionID != ag.lastReq.SessionKey {
+		t.Fatalf("stored session id = %q, want run session %q", reviews.created.SessionID, ag.lastReq.SessionKey)
+	}
+	var resp struct {
+		ID            string `json:"id"`
+		MediaID       string `json:"mediaId"`
+		ImageURL      string `json:"imageUrl"`
+		TodayJudgment struct {
+			Title string  `json:"title"`
+			Score float64 `json:"score"`
+			Label string  `json:"label"`
+		} `json:"todayJudgment"`
+		Highlights []string `json:"highlights"`
+		ShareCard  struct {
+			Advice []string `json:"advice"`
+			CTA    string   `json:"cta"`
+		} `json:"shareCard"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v body=%s", err, rr.Body.String())
+	}
+	if resp.MediaID != mediaID.String() || resp.TodayJudgment.Title != "城市休闲极简主义" || resp.TodayJudgment.Score != 5.5 || len(resp.ShareCard.Advice) != 2 {
+		t.Fatalf("resp = %#v", resp)
+	}
+	if resp.ImageURL == "" {
+		t.Fatalf("missing imageUrl: %#v", resp)
+	}
+}
+
+func TestClosyOOTDHandlerCreateReportRepairsInvalidModelOutput(t *testing.T) {
+	InitGatewayToken("test-token")
+	t.Cleanup(func() { InitGatewayToken("") })
+
+	mediaID, assets := testOOTDMediaStore(t)
+	ag := &fakeOOTDAgent{id: uuid.New(), contents: []string{`{"todayJudgment":{"title":"x","score":9,"label":"ok","summary":"ok"}}`, testOOTDReportJSON()}}
+	router := agent.NewRouter()
+	router.SetResolver(func(context.Context, string) (agent.Agent, error) { return ag, nil })
+	h := NewClosyOOTDHandler(router, assets, &fakeOOTDStore{}, nil, testOOTDSkillsLoader(t))
+
+	body, _ := json.Marshal(map[string]any{"media_id": mediaID.String()})
+	req := httptest.NewRequest(http.MethodPost, "/v1/closy/ootd/reports", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer test-token")
+	req.Header.Set("X-GoClaw-User-Id", "user-a")
+	rr := httptest.NewRecorder()
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if len(ag.requests) != 2 || !strings.Contains(ag.requests[1].Message, "Repair the previous OOTD JSON") {
+		t.Fatalf("requests = %#v", ag.requests)
+	}
+}
+
+func TestClosyOOTDHandlerCreateReportRejectsUnsafeOutput(t *testing.T) {
+	InitGatewayToken("test-token")
+	t.Cleanup(func() { InitGatewayToken("") })
+
+	mediaID, assets := testOOTDMediaStore(t)
+	ag := &fakeOOTDAgent{id: uuid.New(), content: strings.Replace(testOOTDReportJSON(), "整体有方向，但鞋包和上身还差一个清晰态度。", "这套显胖，脸大所以不适合。", 1)}
+	router := agent.NewRouter()
+	router.SetResolver(func(context.Context, string) (agent.Agent, error) { return ag, nil })
+	h := NewClosyOOTDHandler(router, assets, &fakeOOTDStore{}, nil, testOOTDSkillsLoader(t))
+
+	body, _ := json.Marshal(map[string]any{"media_id": mediaID.String()})
+	req := httptest.NewRequest(http.MethodPost, "/v1/closy/ootd/reports", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer test-token")
+	req.Header.Set("X-GoClaw-User-Id", "user-a")
+	rr := httptest.NewRecorder()
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnprocessableEntity || !strings.Contains(rr.Body.String(), "unsafe_analysis_output") {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestClosyOOTDHandlerCreateReportRejectsInvalidAfterRepair(t *testing.T) {
+	InitGatewayToken("test-token")
+	t.Cleanup(func() { InitGatewayToken("") })
+
+	mediaID, assets := testOOTDMediaStore(t)
+	invalid := `{"todayJudgment":{"title":"x","score":99,"label":"ok","summary":"ok"}}`
+	ag := &fakeOOTDAgent{id: uuid.New(), contents: []string{invalid, invalid}}
+	router := agent.NewRouter()
+	router.SetResolver(func(context.Context, string) (agent.Agent, error) { return ag, nil })
+	h := NewClosyOOTDHandler(router, assets, &fakeOOTDStore{}, nil, testOOTDSkillsLoader(t))
+
+	body, _ := json.Marshal(map[string]any{"media_id": mediaID.String()})
+	req := httptest.NewRequest(http.MethodPost, "/v1/closy/ootd/reports", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer test-token")
+	req.Header.Set("X-GoClaw-User-Id", "user-a")
+	rr := httptest.NewRecorder()
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnprocessableEntity || !strings.Contains(rr.Body.String(), "model_output_invalid") {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if len(ag.requests) != 2 {
+		t.Fatalf("requests = %#v", ag.requests)
+	}
+}
+
+func TestClosyOOTDHandlerGetReportReturnsStoredReport(t *testing.T) {
+	InitGatewayToken("test-token")
+	t.Cleanup(func() { InitGatewayToken("") })
+
+	reportJSON := json.RawMessage(testOOTDReportJSON())
+	reportID := uuid.New()
+	mediaID := uuid.New()
+	reviews := &fakeOOTDStore{byID: map[uuid.UUID]*store.ClosyOOTDReviewData{
+		reportID: {
+			BaseModel:  store.BaseModel{ID: reportID, CreatedAt: time.Now().UTC()},
+			UserID:     "user-a",
+			MediaID:    mediaID,
+			Status:     store.ClosyOOTDStatusCompleted,
+			ReportJSON: reportJSON,
+		},
+	}}
+	h := NewClosyOOTDHandler(agent.NewRouter(), nil, reviews, nil, testOOTDSkillsLoader(t))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/closy/ootd/reports/"+reportID.String(), nil)
+	req.SetPathValue("id", reportID.String())
+	req.Header.Set("Authorization", "Bearer test-token")
+	req.Header.Set("X-GoClaw-User-Id", "user-a")
+	rr := httptest.NewRecorder()
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), `"mediaId":"`+mediaID.String()+`"`) || !strings.Contains(rr.Body.String(), `"todayJudgment"`) {
+		t.Fatalf("body=%s", rr.Body.String())
+	}
+}
+
+func TestClosyOOTDHandlerCreateReportRejectsMediaOwnerMismatch(t *testing.T) {
+	InitGatewayToken("test-token")
+	t.Cleanup(func() { InitGatewayToken("") })
+
+	mediaID, assets := testOOTDMediaStore(t)
+	assets.byID[mediaID].UserID = "other-user"
+	h := NewClosyOOTDHandler(agent.NewRouter(), assets, &fakeOOTDStore{}, nil, testOOTDSkillsLoader(t))
+
+	body, _ := json.Marshal(map[string]any{"media_id": mediaID.String(), "user_id": "user-a"})
+	req := httptest.NewRequest(http.MethodPost, "/v1/closy/ootd/reports", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer test-token")
+	req.Header.Set("X-GoClaw-User-Id", "user-a")
+	rr := httptest.NewRecorder()
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func testOOTDMediaStore(t *testing.T) (uuid.UUID, *fakeMediaAssetStore) {
+	t.Helper()
+	tmp, err := os.CreateTemp(t.TempDir(), "ootd-*.jpg")
+	if err != nil {
+		t.Fatalf("temp: %v", err)
+	}
+	if _, err := tmp.Write([]byte("jpg")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := tmp.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	mediaID := uuid.New()
+	return mediaID, &fakeMediaAssetStore{byID: map[uuid.UUID]*store.MediaAssetData{
+		mediaID: {
+			ID:               mediaID,
+			TenantID:         store.MasterTenantID,
+			UserID:           "user-a",
+			OriginalFilename: "fit.jpg",
+			MimeType:         "image/jpeg",
+			Size:             3,
+			StorageBackend:   store.MediaStorageLocal,
+			StorageKey:       tmp.Name(),
+			Status:           store.MediaStatusReady,
+		},
+	}}
+}
+
+func testOOTDSkillsLoader(t *testing.T) *skills.Loader {
+	t.Helper()
+	root := t.TempDir()
+	dir := filepath.Join(root, "skills", "mochi-ootd-review")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir skill: %v", err)
+	}
+	body := "---\nname: mochi-ootd-review\n---\nTEST OOTD SKILL: only structured OOTD JSON."
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o644); err != nil {
+		t.Fatalf("write skill: %v", err)
+	}
+	return skills.NewLoader(root, "", "")
+}
+
+func testOOTDReportJSON() string {
+	return `{"todayJudgment":{"title":"城市休闲极简主义","score":5.5,"label":"还可以更好","summary":"整体有方向，但鞋包和上身还差一个清晰态度。"},"overallStyle":"偏城市休闲，靠中性色和宽松廓形成立。","highlights":["比例干净","色彩稳定"],"biggestIssue":"上身黑色太整块，缺少细节焦点。","suggestions":[{"title":"补一个焦点","body":"换一只更利落的包。"}],"palette":[{"name":"Black","hex":"#1A1A1A"},{"name":"Bone","hex":"#EAE9E1"}],"mochiLine":"底子不差，但现在少一口气。","shareCard":{"title":"城市休闲极简主义","quote":"底子不差，但现在少一口气。","advice":["把鞋换浅","补金属小配件"],"cta":"让 Mochi 也看看你的 OOTD"}}`
 }

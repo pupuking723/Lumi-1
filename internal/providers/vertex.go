@@ -402,9 +402,31 @@ type vertexGeminiFunctionResponse struct {
 func vertexRequestFromChat(req ChatRequest) vertexGeminiRequest {
 	out := vertexGeminiRequest{Contents: make([]vertexGeminiContent, 0, len(req.Messages))}
 	toolNameByID := buildToolNameIndex(req.Messages)
-	for _, msg := range req.Messages {
+	for i := 0; i < len(req.Messages); i++ {
+		msg := req.Messages[i]
 		if msg.Role == "system" {
 			out.SystemInstruction = appendVertexSystem(out.SystemInstruction, msg.Content)
+			continue
+		}
+		if msg.Role == "tool" {
+			content := vertexGeminiContent{Role: "function"}
+			for ; i < len(req.Messages) && req.Messages[i].Role == "tool"; i++ {
+				toolMsg := req.Messages[i]
+				name := toolNameByID[toolMsg.ToolCallID]
+				if name == "" {
+					name = "tool_result"
+				}
+				content.Parts = append(content.Parts, vertexGeminiPart{
+					FunctionResponse: &vertexGeminiFunctionResponse{
+						Name:     name,
+						Response: map[string]any{"content": toolMsg.Content, "is_error": toolMsg.IsError},
+					},
+				})
+			}
+			i--
+			if len(content.Parts) > 0 {
+				out.Contents = append(out.Contents, content)
+			}
 			continue
 		}
 		content := vertexGeminiContent{Role: vertexRole(msg.Role)}
@@ -415,19 +437,6 @@ func vertexRequestFromChat(req ChatRequest) vertexGeminiRequest {
 			content.Parts = append(content.Parts, vertexGeminiPart{
 				InlineData: &vertexGeminiBlob{MimeType: img.MimeType, Data: img.Data},
 			})
-		}
-		if msg.Role == "tool" {
-			name := toolNameByID[msg.ToolCallID]
-			if name == "" {
-				name = "tool_result"
-			}
-			content.Role = "function"
-			content.Parts = []vertexGeminiPart{{
-				FunctionResponse: &vertexGeminiFunctionResponse{
-					Name:     name,
-					Response: map[string]any{"content": msg.Content, "is_error": msg.IsError},
-				},
-			}}
 		}
 		for _, tc := range msg.ToolCalls {
 			part := vertexGeminiPart{

@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -18,6 +19,7 @@ import (
 	"github.com/nextlevelbuilder/goclaw/internal/media"
 	"github.com/nextlevelbuilder/goclaw/internal/permissions"
 	"github.com/nextlevelbuilder/goclaw/internal/sessions"
+	"github.com/nextlevelbuilder/goclaw/internal/skills"
 	"github.com/nextlevelbuilder/goclaw/internal/store"
 )
 
@@ -27,10 +29,11 @@ type ClosyOOTDHandler struct {
 	objectStore *media.ObjectStore
 	reviews     store.ClosyOOTDStore
 	memory      store.ClosyMemoryStore
+	skills      *skills.Loader
 }
 
-func NewClosyOOTDHandler(agents *agent.Router, mediaAssets store.MediaAssetStore, reviews store.ClosyOOTDStore, memory store.ClosyMemoryStore) *ClosyOOTDHandler {
-	return &ClosyOOTDHandler{agents: agents, mediaAssets: mediaAssets, reviews: reviews, memory: memory}
+func NewClosyOOTDHandler(agents *agent.Router, mediaAssets store.MediaAssetStore, reviews store.ClosyOOTDStore, memory store.ClosyMemoryStore, skillsLoader *skills.Loader) *ClosyOOTDHandler {
+	return &ClosyOOTDHandler{agents: agents, mediaAssets: mediaAssets, reviews: reviews, memory: memory, skills: skillsLoader}
 }
 
 func (h *ClosyOOTDHandler) SetObjectStore(objectStore *media.ObjectStore) {
@@ -41,6 +44,8 @@ func (h *ClosyOOTDHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/closy/ootd/reviews", h.handleCreate)
 	mux.HandleFunc("GET /v1/closy/ootd/reviews", h.handleList)
 	mux.HandleFunc("GET /v1/closy/ootd/reviews/{id}", h.handleGet)
+	mux.HandleFunc("POST /v1/closy/ootd/reports", h.handleCreateReport)
+	mux.HandleFunc("GET /v1/closy/ootd/reports/{id}", h.handleGetReport)
 }
 
 type closyOOTDCreateRequest struct {
@@ -54,6 +59,30 @@ type closyOOTDCreateRequest struct {
 type closyOOTDCreateResponse struct {
 	Review *store.ClosyOOTDReviewData `json:"review"`
 	Result closy.OOTDReviewResult     `json:"result"`
+}
+
+type closyOOTDReportCreateRequest struct {
+	MediaID   string `json:"media_id"`
+	SessionID string `json:"session_id,omitempty"`
+	Scene     string `json:"scene,omitempty"`
+	Note      string `json:"note,omitempty"`
+	UserID    string `json:"user_id,omitempty"`
+}
+
+type closyOOTDReportResponse struct {
+	ID            string                  `json:"id"`
+	MediaID       string                  `json:"mediaId"`
+	ImageURL      string                  `json:"imageUrl"`
+	Status        string                  `json:"status"`
+	TodayJudgment closy.OOTDTodayJudgment `json:"todayJudgment"`
+	OverallStyle  string                  `json:"overallStyle"`
+	Highlights    []string                `json:"highlights"`
+	BiggestIssue  string                  `json:"biggestIssue"`
+	Suggestions   []closy.OOTDSuggestion  `json:"suggestions"`
+	Palette       []closy.OOTDPalette     `json:"palette"`
+	MochiLine     string                  `json:"mochiLine"`
+	ShareCard     closy.OOTDShareCardCopy `json:"shareCard"`
+	CreatedAt     string                  `json:"createdAt"`
 }
 
 func (h *ClosyOOTDHandler) auth(r *http.Request, w http.ResponseWriter) (*http.Request, bool) {
@@ -147,6 +176,95 @@ func (h *ClosyOOTDHandler) handleCreate(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, closyOOTDCreateResponse{Review: review, Result: result})
 }
 
+func (h *ClosyOOTDHandler) handleCreateReport(w http.ResponseWriter, r *http.Request) {
+	r, ok := h.auth(r, w)
+	if !ok {
+		return
+	}
+	if h == nil || h.agents == nil || h.mediaAssets == nil || h.reviews == nil || h.skills == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "closy ootd reports API is not configured"})
+		return
+	}
+	locale := extractLocale(r)
+	var req closyOOTDReportCreateRequest
+	if !bindJSON(w, r, locale, &req) {
+		return
+	}
+	userID := strings.TrimSpace(req.UserID)
+	if userID == "" {
+		userID = store.UserIDFromContext(r.Context())
+	}
+	if userID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "user_id is required"})
+		return
+	}
+	media, asset, cleanupMedia, err := h.resolveOOTDMedia(r.Context(), req.MediaID)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	defer cleanupMedia()
+	if asset.UserID != "" && asset.UserID != userID {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "user_id does not match media owner"})
+		return
+	}
+	loop, err := h.agents.Get(r.Context(), closy.AgentKey)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Mochi agent not found"})
+		return
+	}
+	skillBody, ok := h.skills.LoadSkill(r.Context(), "mochi-ootd-review")
+	if !ok || strings.TrimSpace(skillBody) == "" {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "mochi-ootd-review skill is not available"})
+		return
+	}
+
+	runID := uuid.NewString()
+	sessionKey := ootdReportSessionKey(closy.AgentKey, userID, asset.ID, runID)
+	prompt := closy.BuildOOTDReportPrompt(skillBody, req.Note, req.Scene, "", ootdOutputLanguage(r, locale))
+	report, raw, runErr := h.runOOTDReport(r.Context(), loop, sessionKey, runID, userID, prompt, media)
+	if errors.Is(runErr, closy.ErrInvalidOOTDReport) {
+		repairPrompt := closy.BuildOOTDReportRepairPrompt(raw, runErr)
+		report, raw, runErr = h.runOOTDReport(r.Context(), loop, sessionKey, runID+"-repair", userID, repairPrompt, media)
+	}
+	if errors.Is(runErr, closy.ErrUnsafeOOTDReport) {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "unsafe_analysis_output"})
+		return
+	}
+	if errors.Is(runErr, closy.ErrInvalidOOTDReport) {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "model_output_invalid"})
+		return
+	}
+	if runErr != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": runErr.Error()})
+		return
+	}
+
+	reportJSON, _ := json.Marshal(report)
+	review, err := h.reviews.CreateClosyOOTDReview(r.Context(), store.CreateClosyOOTDReviewParams{
+		UserID:           userID,
+		AgentID:          loop.UUID(),
+		MediaID:          asset.ID,
+		SessionID:        sessionKey,
+		Occasion:         req.Scene,
+		UserNote:         req.Note,
+		OverallJudgement: report.TodayJudgment.Summary,
+		StyleLabel:       report.TodayJudgment.Title,
+		Highlight:        firstString(report.Highlights),
+		MainIssue:        report.BiggestIssue,
+		Suggestion:       firstSuggestionBody(report.Suggestions),
+		MochiLine:        report.MochiLine,
+		RawResponse:      raw,
+		ReportJSON:       reportJSON,
+		Status:           store.ClosyOOTDStatusCompleted,
+	})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, ootdReportResponse(review, report))
+}
+
 func (h *ClosyOOTDHandler) handleGet(w http.ResponseWriter, r *http.Request) {
 	r, ok := h.auth(r, w)
 	if !ok {
@@ -167,6 +285,42 @@ func (h *ClosyOOTDHandler) handleGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, review)
+}
+
+func (h *ClosyOOTDHandler) handleGetReport(w http.ResponseWriter, r *http.Request) {
+	r, ok := h.auth(r, w)
+	if !ok {
+		return
+	}
+	if h == nil || h.reviews == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "closy ootd reports API is not configured"})
+		return
+	}
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid report id"})
+		return
+	}
+	review, err := h.reviews.GetClosyOOTDReview(r.Context(), id)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if review == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "report not found"})
+		return
+	}
+	userID := store.UserIDFromContext(r.Context())
+	if userID != "" && review.UserID != "" && userID != review.UserID {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "user_id does not match OOTD report owner"})
+		return
+	}
+	report, err := ootdReportFromReview(review)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "report not found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, ootdReportResponse(review, report))
 }
 
 func (h *ClosyOOTDHandler) handleList(w http.ResponseWriter, r *http.Request) {
@@ -249,6 +403,33 @@ func (h *ClosyOOTDHandler) runOOTDReview(ctx context.Context, loop agent.Agent, 
 	return parsed, raw, nil
 }
 
+func (h *ClosyOOTDHandler) runOOTDReport(ctx context.Context, loop agent.Agent, sessionKey, runID, userID, prompt string, media bus.MediaFile) (closy.OOTDReport, string, error) {
+	result, err := loop.Run(ctx, agent.RunRequest{
+		SessionKey:        sessionKey,
+		Message:           prompt,
+		Media:             []bus.MediaFile{media},
+		ForceInlineImages: true,
+		Channel:           "http",
+		ChatID:            "ootd-report",
+		PeerKind:          string(sessions.PeerDirect),
+		RunID:             runID,
+		UserID:            userID,
+		Stream:            false,
+	})
+	if err != nil {
+		return closy.OOTDReport{}, "", err
+	}
+	raw := ""
+	if result != nil {
+		raw = result.Content
+	}
+	report, parseErr := closy.ParseOOTDReport(raw)
+	if parseErr != nil {
+		return report, raw, parseErr
+	}
+	return report, raw, nil
+}
+
 func (h *ClosyOOTDHandler) persistOOTDMemory(ctx context.Context, userID string, agentID uuid.UUID, sessionKey string, review *store.ClosyOOTDReviewData) {
 	if h == nil || h.memory == nil || review == nil {
 		return
@@ -269,6 +450,10 @@ func (h *ClosyOOTDHandler) persistOOTDMemory(ctx context.Context, userID string,
 	})
 }
 
+func ootdReportSessionKey(agentID, userID string, mediaID uuid.UUID, runID string) string {
+	return chatCompletionSessionKey(agentID, userID, "ootd-report-"+mediaID.String(), runID)
+}
+
 func ootdResultFromReview(review *store.ClosyOOTDReviewData) closy.OOTDReviewResult {
 	if review == nil {
 		return closy.OOTDReviewResult{}
@@ -287,4 +472,61 @@ func ootdResultFromReview(review *store.ClosyOOTDReviewData) closy.OOTDReviewRes
 func ootdResultJSON(result closy.OOTDReviewResult) string {
 	data, _ := json.Marshal(result)
 	return string(data)
+}
+
+func ootdReportFromReview(review *store.ClosyOOTDReviewData) (closy.OOTDReport, error) {
+	if review == nil || len(review.ReportJSON) == 0 {
+		return closy.OOTDReport{}, fmt.Errorf("missing report_json")
+	}
+	return closy.ParseOOTDReport(string(review.ReportJSON))
+}
+
+func ootdReportResponse(review *store.ClosyOOTDReviewData, report closy.OOTDReport) closyOOTDReportResponse {
+	if review == nil {
+		return closyOOTDReportResponse{}
+	}
+	return closyOOTDReportResponse{
+		ID:            review.ID.String(),
+		MediaID:       review.MediaID.String(),
+		ImageURL:      "/v1/media/" + review.MediaID.String(),
+		Status:        review.Status,
+		TodayJudgment: report.TodayJudgment,
+		OverallStyle:  report.OverallStyle,
+		Highlights:    report.Highlights,
+		BiggestIssue:  report.BiggestIssue,
+		Suggestions:   report.Suggestions,
+		Palette:       report.Palette,
+		MochiLine:     report.MochiLine,
+		ShareCard:     report.ShareCard,
+		CreatedAt:     review.CreatedAt.UTC().Format(time.RFC3339),
+	}
+}
+
+func firstString(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
+}
+
+func firstSuggestionBody(values []closy.OOTDSuggestion) string {
+	if len(values) == 0 {
+		return ""
+	}
+	if body := strings.TrimSpace(values[0].Body); body != "" {
+		return body
+	}
+	return values[0].Title
+}
+
+func ootdOutputLanguage(r *http.Request, fallback string) string {
+	if r != nil {
+		for part := range strings.SplitSeq(r.Header.Get("Accept-Language"), ",") {
+			tag := strings.TrimSpace(strings.SplitN(part, ";", 2)[0])
+			if tag != "" {
+				return tag
+			}
+		}
+	}
+	return fallback
 }

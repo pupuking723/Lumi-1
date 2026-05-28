@@ -139,6 +139,40 @@ func TestEnrichInputMedia_ForceInlineImagesBypassesReadImageProvider(t *testing.
 	}
 }
 
+func TestEnrichInputMedia_AttachesInlineImageWhenWorkspacePersistUnavailable(t *testing.T) {
+	src := filepath.Join(t.TempDir(), "look.jpg")
+	if err := os.WriteFile(src, []byte("fake image bytes"), 0644); err != nil {
+		t.Fatalf("write image: %v", err)
+	}
+
+	loop := Loop{
+		builtinToolSettings: tools.BuiltinToolSettings{
+			"read_image": []byte(`{"providers":[{"provider":"zai-coding","model":"glm-5","enabled":true}]}`),
+		},
+	}
+	messages := []providers.Message{{
+		Role:    "user",
+		Content: `<media:image> can you review this look?`,
+	}}
+	req := &RunRequest{
+		SessionKey:        "agent:closy:http-test",
+		Media:             []bus.MediaFile{{Path: src, MimeType: "image/jpeg", Filename: "look.jpg"}},
+		ForceInlineImages: true,
+	}
+
+	ctx, enriched, refs := loop.enrichInputMedia(context.Background(), req, messages)
+
+	if len(refs) != 0 {
+		t.Fatalf("media refs = %d, want 0 when workspace is unavailable", len(refs))
+	}
+	if got := len(enriched[0].Images); got != 1 {
+		t.Fatalf("inline images = %d, want 1", got)
+	}
+	if got := len(tools.MediaImagesFromCtx(ctx)); got != 1 {
+		t.Fatalf("context images = %d, want 1", got)
+	}
+}
+
 // TestEnrichImagePaths_NoDoubleEnrich verifies that historical messages with
 // url+id+path are not re-enriched on subsequent turns.
 func TestEnrichImagePaths_NoDoubleEnrich(t *testing.T) {

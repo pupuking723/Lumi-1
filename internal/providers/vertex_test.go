@@ -72,6 +72,37 @@ func TestVertexProviderChatUsesGenerateContent(t *testing.T) {
 	}
 }
 
+func TestVertexRequestGroupsConsecutiveToolResponses(t *testing.T) {
+	req := ChatRequest{Messages: []Message{
+		{Role: "user", Content: "use tools"},
+		{Role: "assistant", ToolCalls: []ToolCall{
+			{ID: "call_1", Name: "read_image", Arguments: map[string]any{"path": "a.png"}},
+			{ID: "call_2", Name: "skill_search", Arguments: map[string]any{"q": "ootd"}},
+		}},
+		{Role: "tool", ToolCallID: "call_1", Content: "image ok"},
+		{Role: "tool", ToolCallID: "call_2", Content: "skill ok"},
+		{Role: "assistant", Content: "done"},
+	}}
+
+	got := vertexRequestFromChat(req)
+	if len(got.Contents) != 4 {
+		t.Fatalf("contents len = %d, want 4: %#v", len(got.Contents), got.Contents)
+	}
+	toolTurn := got.Contents[2]
+	if toolTurn.Role != "function" {
+		t.Fatalf("tool turn role = %q, want function", toolTurn.Role)
+	}
+	if len(toolTurn.Parts) != 2 {
+		t.Fatalf("function response parts len = %d, want 2: %#v", len(toolTurn.Parts), toolTurn.Parts)
+	}
+	if toolTurn.Parts[0].FunctionResponse == nil || toolTurn.Parts[0].FunctionResponse.Name != "read_image" {
+		t.Fatalf("first response not mapped to read_image: %#v", toolTurn.Parts[0])
+	}
+	if toolTurn.Parts[1].FunctionResponse == nil || toolTurn.Parts[1].FunctionResponse.Name != "skill_search" {
+		t.Fatalf("second response not mapped to skill_search: %#v", toolTurn.Parts[1])
+	}
+}
+
 func TestVertexProviderChatStreamParsesSSE(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasSuffix(r.URL.String(), ":streamGenerateContent?alt=sse") {

@@ -182,8 +182,11 @@ func (d *gatewayDeps) wireHTTPHandlersOnServer(
 	if d.pgStores != nil && d.pgStores.ClosyMemory != nil && d.pgStores.Agents != nil {
 		d.server.SetClosyProfileHandler(httpapi.NewClosyProfileHandler(d.pgStores.Agents, d.pgStores.ClosyMemory))
 	}
+	if d.pgStores != nil && d.pgStores.ClosyOOTD != nil {
+		d.server.SetClosyOOTDStore(d.pgStores.ClosyOOTD)
+	}
 	if d.pgStores != nil && d.pgStores.ClosyOOTD != nil && d.pgStores.MediaAssets != nil {
-		ootd := httpapi.NewClosyOOTDHandler(d.agentRouter, d.pgStores.MediaAssets, d.pgStores.ClosyOOTD, d.pgStores.ClosyMemory)
+		ootd := httpapi.NewClosyOOTDHandler(d.agentRouter, d.pgStores.MediaAssets, d.pgStores.ClosyOOTD, d.pgStores.ClosyMemory, d.skillsLoader)
 		if objectStore != nil {
 			ootd.SetObjectStore(objectStore)
 		}

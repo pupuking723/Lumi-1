@@ -84,6 +84,7 @@ goclaw.db-shm
 ui/desktop/frontend/dist/index.html
 
 # Local compose modules
+deploy/compose/docker-compose.local.yml
 deploy/compose/modules/*
 !deploy/compose/modules/.gitkeep
 !deploy/compose/modules/README.md
