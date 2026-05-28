@@ -55,7 +55,7 @@ jobs:
     steps:
       - name: Configure SSH
         env:
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY || secrets.VPS_SSH_KEY }}
           DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
         run: |
           set -euo pipefail
@@ -67,7 +67,7 @@ jobs:
 
       - name: Pull and restart GoClaw
         env:
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER || 'root' }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER || secrets.VPS_USER || 'root' }}
           DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
           GHCR_USER: ${{ github.actor }}
           GHCR_TOKEN: ${{ github.token }}
