@@ -136,3 +136,61 @@ func TestClosyShareCardsHandlerCreateAndPublicSlug(t *testing.T) {
 		t.Fatalf("view count card=%d body=%s", cards.created.ViewCount, publicRR.Body.String())
 	}
 }
+
+func TestClosyShareCardsHandlerCreateReportShareCardReturnsFrontendShape(t *testing.T) {
+	InitGatewayToken("test-token")
+	t.Cleanup(func() { InitGatewayToken("") })
+
+	reportID := uuid.New()
+	mediaID := uuid.New()
+	agentID := uuid.New()
+	reviews := &fakeOOTDStore{byID: map[uuid.UUID]*store.ClosyOOTDReviewData{
+		reportID: {
+			BaseModel:        store.BaseModel{ID: reportID},
+			UserID:           "user-a",
+			AgentID:          agentID,
+			MediaID:          mediaID,
+			OverallJudgement: "城市休闲极简主义",
+			StyleLabel:       "clean casual",
+			Highlight:        "颜色干净",
+			MainIssue:        "鞋子略断层",
+			Suggestion:       "换浅色鞋",
+			MochiLine:        "底子不差，但现在少一口气。",
+			Status:           store.ClosyOOTDStatusCompleted,
+			ReportJSON:       json.RawMessage(testOOTDReportJSON()),
+		},
+	}}
+	cards := &fakeShareCardStore{}
+	h := NewClosyShareCardsHandler(reviews, cards)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/closy/ootd/reports/"+reportID.String()+"/share-card", nil)
+	req.Host = "app.test"
+	req.SetPathValue("id", reportID.String())
+	req.Header.Set("Authorization", "Bearer test-token")
+	req.Header.Set("X-GoClaw-User-Id", "user-a")
+	rr := httptest.NewRecorder()
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var resp struct {
+		ID         string `json:"id"`
+		ReportID   string `json:"reportId"`
+		ShortURL   string `json:"shortUrl"`
+		QRImageURL string `json:"qrImageUrl"`
+		CreatedAt  string `json:"createdAt"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v body=%s", err, rr.Body.String())
+	}
+	if resp.ReportID != reportID.String() || !strings.Contains(resp.ShortURL, "/s/closy/") || !strings.Contains(resp.QRImageURL, "qr") || resp.CreatedAt == "" {
+		t.Fatalf("resp = %#v", resp)
+	}
+	if cards.created == nil || cards.created.OOTDReviewID != reportID {
+		t.Fatalf("created = %#v", cards.created)
+	}
+}

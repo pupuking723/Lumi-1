@@ -63,6 +63,7 @@ func (l *Loop) enrichInputMedia(ctx context.Context, req *RunRequest, messages [
 	// 2. Process media: sanitize images, persist to media store.
 	var mediaRefs []providers.MediaRef
 	if len(req.Media) > 0 {
+		currentImageFiles := imageFilesFromBusFiles(req.Media)
 		mediaRefs = l.persistMedia(req.SessionKey, req.Media, tools.ToolWorkspaceFromCtx(ctx))
 
 		// Register persisted text uploads in vault (async, non-blocking).
@@ -90,6 +91,9 @@ func (l *Loop) enrichInputMedia(ctx context.Context, req *RunRequest, messages [
 				}
 				imageFiles = append(imageFiles, bus.MediaFile{Path: p, MimeType: ref.MimeType, Filename: name})
 			}
+		}
+		if len(imageFiles) == 0 {
+			imageFiles = currentImageFiles
 		}
 		if deferToReadImageTool {
 			// File-ref mode: images primarily accessed via read_image(path=...).
@@ -175,4 +179,22 @@ func (l *Loop) enrichInputMedia(ctx context.Context, req *RunRequest, messages [
 	}
 
 	return ctx, messages, mediaRefs
+}
+
+func imageFilesFromBusFiles(files []bus.MediaFile) []bus.MediaFile {
+	if len(files) == 0 {
+		return nil
+	}
+	out := make([]bus.MediaFile, 0, len(files))
+	for _, file := range files {
+		mime := file.MimeType
+		if mime == "" {
+			mime = mimeFromExt(filepath.Ext(file.Path))
+		}
+		if strings.HasPrefix(mime, "image/") && file.Path != "" {
+			file.MimeType = mime
+			out = append(out, file)
+		}
+	}
+	return out
 }
