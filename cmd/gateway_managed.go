@@ -18,12 +18,12 @@ import (
 	"github.com/nextlevelbuilder/goclaw/internal/eventbus"
 	"github.com/nextlevelbuilder/goclaw/internal/hooks"
 	hookbuiltin "github.com/nextlevelbuilder/goclaw/internal/hooks/builtin"
-	"github.com/nextlevelbuilder/goclaw/internal/orchestration"
 	httpapi "github.com/nextlevelbuilder/goclaw/internal/http"
 	kg "github.com/nextlevelbuilder/goclaw/internal/knowledgegraph"
 	mcpbridge "github.com/nextlevelbuilder/goclaw/internal/mcp"
 	"github.com/nextlevelbuilder/goclaw/internal/media"
 	memorypkg "github.com/nextlevelbuilder/goclaw/internal/memory"
+	"github.com/nextlevelbuilder/goclaw/internal/orchestration"
 	"github.com/nextlevelbuilder/goclaw/internal/providers"
 	"github.com/nextlevelbuilder/goclaw/internal/sandbox"
 	"github.com/nextlevelbuilder/goclaw/internal/skills"
@@ -58,7 +58,7 @@ func wireExtras(
 	sandboxMgr sandbox.Manager,
 	redisClient any, // nil when built without -tags redis or when Redis is unconfigured
 	domainBus eventbus.DomainEventBus,
-) (*tools.ContextFileInterceptor, *mcpbridge.Pool, *media.Store, tools.PostTurnProcessor) {
+) (*tools.ContextFileInterceptor, *mcpbridge.Pool, *media.Store, *media.ObjectStore, tools.PostTurnProcessor) {
 	// 1. Build cache instances (in-memory or Redis depending on build tags)
 	agentCtxCache, userCtxCache := makeCaches(redisClient)
 
@@ -72,6 +72,13 @@ func wireExtras(
 	mediaStore, err := media.NewStore(filepath.Join(workspace, ".media"))
 	if err != nil {
 		slog.Warn("media store creation failed, images will not persist across turns", "error", err)
+	}
+	objectStore, err := media.NewObjectStoreFromEnv()
+	if err != nil {
+		slog.Error("media object storage disabled: invalid configuration", "error", err)
+	}
+	if objectStore != nil {
+		slog.Info("media object storage enabled", "backend", "aliyun_oss", "bucket", objectStore.Bucket())
 	}
 
 	// Wire media cleanup on session delete.
@@ -226,6 +233,7 @@ func wireExtras(
 		MCPGrantChecker:        mcpGrantChecker,
 		ConfigPermStore:        stores.ConfigPermissions,
 		MediaStore:             mediaStore,
+		ObjectStore:            objectStore,
 		ModelPricing:           appCfg.Telemetry.ModelPricing,
 		TracingStore:           stores.Tracing,
 		MemoryStore:            stores.Memory,
@@ -685,7 +693,7 @@ func wireExtras(
 	})
 
 	slog.Info("resolver + interceptors + cache subscribers wired")
-	return contextFileInterceptor, mcpPool, mediaStore, postTurn
+	return contextFileInterceptor, mcpPool, mediaStore, objectStore, postTurn
 }
 
 // kgSettings holds KG extraction settings from the builtin_tools table.

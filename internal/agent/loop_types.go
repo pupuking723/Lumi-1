@@ -231,7 +231,8 @@ type Loop struct {
 	onTextUploaded func(ctx context.Context, path, content string)
 
 	// Persistent media storage for cross-turn image/document access
-	mediaStore *media.Store
+	mediaStore  *media.Store
+	objectStore *media.ObjectStore
 
 	// Model pricing config for cost tracking (nil = no cost calculation)
 	modelPricing map[string]*config.ModelPricing
@@ -422,7 +423,8 @@ type LoopConfig struct {
 	OnTextUploaded func(ctx context.Context, path, content string)
 
 	// Persistent media storage for cross-turn image/document access
-	MediaStore *media.Store
+	MediaStore  *media.Store
+	ObjectStore *media.ObjectStore
 
 	// Model pricing for cost tracking (key = "provider/model" or "model")
 	ModelPricing map[string]*config.ModelPricing
@@ -565,6 +567,7 @@ func NewLoop(cfg LoopConfig) *Loop {
 		secureCLIStore:         cfg.SecureCLIStore,
 		onTextUploaded:         cfg.OnTextUploaded,
 		mediaStore:             cfg.MediaStore,
+		objectStore:            cfg.ObjectStore,
 		modelPricing:           cfg.ModelPricing,
 		budgetMonthlyCents:     cfg.BudgetMonthlyCents,
 		tracingStore:           cfg.TracingStore,

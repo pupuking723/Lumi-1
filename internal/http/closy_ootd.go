@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -16,6 +15,7 @@ import (
 	"github.com/nextlevelbuilder/goclaw/internal/bus"
 	"github.com/nextlevelbuilder/goclaw/internal/closy"
 	"github.com/nextlevelbuilder/goclaw/internal/i18n"
+	"github.com/nextlevelbuilder/goclaw/internal/media"
 	"github.com/nextlevelbuilder/goclaw/internal/permissions"
 	"github.com/nextlevelbuilder/goclaw/internal/sessions"
 	"github.com/nextlevelbuilder/goclaw/internal/store"
@@ -24,12 +24,17 @@ import (
 type ClosyOOTDHandler struct {
 	agents      *agent.Router
 	mediaAssets store.MediaAssetStore
+	objectStore *media.ObjectStore
 	reviews     store.ClosyOOTDStore
 	memory      store.ClosyMemoryStore
 }
 
 func NewClosyOOTDHandler(agents *agent.Router, mediaAssets store.MediaAssetStore, reviews store.ClosyOOTDStore, memory store.ClosyMemoryStore) *ClosyOOTDHandler {
 	return &ClosyOOTDHandler{agents: agents, mediaAssets: mediaAssets, reviews: reviews, memory: memory}
+}
+
+func (h *ClosyOOTDHandler) SetObjectStore(objectStore *media.ObjectStore) {
+	h.objectStore = objectStore
 }
 
 func (h *ClosyOOTDHandler) RegisterRoutes(mux *http.ServeMux) {
@@ -87,11 +92,12 @@ func (h *ClosyOOTDHandler) handleCreate(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "user_id is required"})
 		return
 	}
-	media, asset, err := h.resolveOOTDMedia(r.Context(), req.MediaID)
+	media, asset, cleanupMedia, err := h.resolveOOTDMedia(r.Context(), req.MediaID)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	defer cleanupMedia()
 	loop, err := h.agents.Get(r.Context(), closy.AgentKey)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Mochi agent not found"})
@@ -191,34 +197,29 @@ func (h *ClosyOOTDHandler) handleList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"reviews": reviews})
 }
 
-func (h *ClosyOOTDHandler) resolveOOTDMedia(ctx context.Context, mediaID string) (bus.MediaFile, *store.MediaAssetData, error) {
+func (h *ClosyOOTDHandler) resolveOOTDMedia(ctx context.Context, mediaID string) (bus.MediaFile, *store.MediaAssetData, func(), error) {
 	id, err := uuid.Parse(strings.TrimSpace(mediaID))
 	if err != nil {
-		return bus.MediaFile{}, nil, fmt.Errorf("valid media_id is required")
+		return bus.MediaFile{}, nil, func() {}, fmt.Errorf("valid media_id is required")
 	}
 	asset, err := h.mediaAssets.GetMediaAsset(ctx, id)
 	if err != nil {
-		return bus.MediaFile{}, nil, fmt.Errorf("load media %s: %w", mediaID, err)
+		return bus.MediaFile{}, nil, func() {}, fmt.Errorf("load media %s: %w", mediaID, err)
 	}
 	if asset == nil {
-		return bus.MediaFile{}, nil, fmt.Errorf("media not found: %s", mediaID)
+		return bus.MediaFile{}, nil, func() {}, fmt.Errorf("media not found: %s", mediaID)
 	}
 	if asset.Status != store.MediaStatusReady {
-		return bus.MediaFile{}, nil, fmt.Errorf("media is not ready: %s", mediaID)
-	}
-	if asset.StorageBackend != "" && asset.StorageBackend != store.MediaStorageLocal {
-		return bus.MediaFile{}, nil, fmt.Errorf("media storage backend %q is not supported by this runtime yet", asset.StorageBackend)
+		return bus.MediaFile{}, nil, func() {}, fmt.Errorf("media is not ready: %s", mediaID)
 	}
 	if !strings.HasPrefix(strings.ToLower(asset.MimeType), "image/") {
-		return bus.MediaFile{}, nil, fmt.Errorf("OOTD review requires image/* media, got %q", asset.MimeType)
+		return bus.MediaFile{}, nil, func() {}, fmt.Errorf("OOTD review requires image/* media, got %q", asset.MimeType)
 	}
-	if asset.StorageKey == "" {
-		return bus.MediaFile{}, nil, fmt.Errorf("media has no storage key: %s", mediaID)
+	localPath, cleanup, err := mediaAssetTempPath(ctx, h.objectStore, asset)
+	if err != nil {
+		return bus.MediaFile{}, nil, func() {}, err
 	}
-	if _, err := os.Stat(asset.StorageKey); err != nil {
-		return bus.MediaFile{}, nil, fmt.Errorf("media file unavailable: %s", mediaID)
-	}
-	return bus.MediaFile{Path: asset.StorageKey, MimeType: asset.MimeType, Filename: asset.OriginalFilename}, asset, nil
+	return bus.MediaFile{ID: asset.ID.String(), Path: localPath, MimeType: asset.MimeType, Filename: asset.OriginalFilename}, asset, cleanup, nil
 }
 
 func (h *ClosyOOTDHandler) runOOTDReview(ctx context.Context, loop agent.Agent, sessionKey, runID, userID, prompt string, media bus.MediaFile) (closy.OOTDReviewResult, string, error) {

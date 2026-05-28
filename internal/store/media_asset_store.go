@@ -10,6 +10,7 @@ import (
 
 const (
 	MediaStorageLocal = "local"
+	MediaStorageOSS   = "oss"
 	MediaStatusReady  = "ready"
 )
 

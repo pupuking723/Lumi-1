@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/nextlevelbuilder/goclaw/internal/closy"
+	"github.com/nextlevelbuilder/goclaw/internal/media"
 	"github.com/nextlevelbuilder/goclaw/internal/permissions"
 	"github.com/nextlevelbuilder/goclaw/internal/providers"
 	"github.com/nextlevelbuilder/goclaw/internal/providers/googleauth"
@@ -37,12 +38,13 @@ const geminiLiveAuthHelp = "set GOCLAW_VERTEX_ACCESS_TOKEN, VERTEX_ACCESS_TOKEN,
 
 // GeminiLiveHandler is the Gemini Live WebSocket bridge used by C-side live sessions.
 type GeminiLiveHandler struct {
-	upgrader websocket.Upgrader
-	agents   store.AgentStore
-	sessions geminiLiveSessionStore
-	assets   store.MediaAssetStore
-	memory   store.ClosyMemoryStore
-	dialer   *websocket.Dialer
+	upgrader    websocket.Upgrader
+	agents      store.AgentStore
+	sessions    geminiLiveSessionStore
+	assets      store.MediaAssetStore
+	objectStore *media.ObjectStore
+	memory      store.ClosyMemoryStore
+	dialer      *websocket.Dialer
 }
 
 type geminiLiveSessionStore interface {
@@ -68,6 +70,10 @@ func NewGeminiLiveHandler(agents store.AgentStore, sessions geminiLiveSessionSto
 // records from POST /v1/chat/attachments/upload.
 func (h *GeminiLiveHandler) SetMediaAssetStore(assets store.MediaAssetStore) {
 	h.assets = assets
+}
+
+func (h *GeminiLiveHandler) SetObjectStore(objectStore *media.ObjectStore) {
+	h.objectStore = objectStore
 }
 
 // SetClosyMemoryStore enables Mochi domain memory prompt injection and post-turn extraction.
@@ -591,16 +597,13 @@ func (h *GeminiLiveHandler) geminiLiveMediaPayload(ctx context.Context, event ge
 	if asset.Status != store.MediaStatusReady {
 		return nil, nil, fmt.Errorf("live media is not ready: %s", mediaID)
 	}
-	if asset.StorageBackend != "" && asset.StorageBackend != store.MediaStorageLocal {
-		return nil, nil, fmt.Errorf("live media storage backend %q is not supported by this runtime yet", asset.StorageBackend)
-	}
 	if !strings.HasPrefix(strings.ToLower(asset.MimeType), "image/") {
 		return nil, nil, fmt.Errorf("live media_id %s is %q; only image/* is supported for live media events", mediaID, asset.MimeType)
 	}
 	if asset.StorageKey == "" {
 		return nil, nil, fmt.Errorf("live media has no storage key: %s", mediaID)
 	}
-	data, err := os.ReadFile(asset.StorageKey)
+	data, err := readMediaAssetBytes(ctx, h.objectStore, asset)
 	if err != nil {
 		return nil, nil, fmt.Errorf("read live media %s: %w", mediaID, err)
 	}

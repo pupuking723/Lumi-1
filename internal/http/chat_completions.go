@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -17,6 +16,7 @@ import (
 	mediapkg "github.com/nextlevelbuilder/goclaw/internal/channels/media"
 	"github.com/nextlevelbuilder/goclaw/internal/closy"
 	"github.com/nextlevelbuilder/goclaw/internal/i18n"
+	mediastore "github.com/nextlevelbuilder/goclaw/internal/media"
 	"github.com/nextlevelbuilder/goclaw/internal/permissions"
 	"github.com/nextlevelbuilder/goclaw/internal/sessions"
 	"github.com/nextlevelbuilder/goclaw/internal/store"
@@ -32,6 +32,7 @@ type ChatCompletionsHandler struct {
 	rateLimiter func(string) bool // rate limit check: key → allowed (nil = no limit)
 	postTurn    tools.PostTurnProcessor
 	mediaAssets store.MediaAssetStore
+	objectStore *mediastore.ObjectStore
 	agentStore  store.AgentStore
 	closyMemory store.ClosyMemoryStore
 }
@@ -44,6 +45,10 @@ func (h *ChatCompletionsHandler) SetPostTurnProcessor(pt tools.PostTurnProcessor
 // SetMediaAssetStore enables media_id attachments on /v1/chat/completions.
 func (h *ChatCompletionsHandler) SetMediaAssetStore(st store.MediaAssetStore) {
 	h.mediaAssets = st
+}
+
+func (h *ChatCompletionsHandler) SetObjectStore(objectStore *mediastore.ObjectStore) {
+	h.objectStore = objectStore
 }
 
 // SetClosyMemoryStore enables Mochi domain memory prompt injection and post-turn extraction.
@@ -341,11 +346,12 @@ func (h *ChatCompletionsHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	mediaFiles, mediaInfos, resolvedAttachments, err := h.resolveAttachments(r.Context(), req.Attachments)
+	mediaFiles, mediaInfos, resolvedAttachments, cleanupAttachments, err := h.resolveAttachments(r.Context(), req.Attachments)
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":{"message":"%s"}}`, err.Error()), http.StatusBadRequest)
 		return
 	}
+	defer cleanupAttachments()
 
 	runID := uuid.NewString()
 	sessionKey := chatCompletionSessionKey(agentID, userID, req.SessionID, runID)
@@ -373,57 +379,68 @@ func (h *ChatCompletionsHandler) closyMemoryPrompt(ctx context.Context, agentID,
 	return closy.BuildMemoryPromptForUser(ctx, h.closyMemory, ag.ID, userID), ag.ID
 }
 
-func (h *ChatCompletionsHandler) resolveAttachments(ctx context.Context, attachments []chatAttachment) ([]bus.MediaFile, []mediapkg.MediaInfo, []resolvedChatAttachment, error) {
+func (h *ChatCompletionsHandler) resolveAttachments(ctx context.Context, attachments []chatAttachment) ([]bus.MediaFile, []mediapkg.MediaInfo, []resolvedChatAttachment, func(), error) {
 	if len(attachments) == 0 {
-		return nil, nil, nil, nil
+		return nil, nil, nil, func() {}, nil
 	}
 	if h.mediaAssets == nil {
-		return nil, nil, nil, fmt.Errorf("media attachments are not configured")
+		return nil, nil, nil, func() {}, fmt.Errorf("media attachments are not configured")
 	}
 
+	var cleanups []func()
+	cleanupAll := func() {
+		for i := len(cleanups) - 1; i >= 0; i-- {
+			if cleanups[i] != nil {
+				cleanups[i]()
+			}
+		}
+	}
 	files := make([]bus.MediaFile, 0, len(attachments))
 	infos := make([]mediapkg.MediaInfo, 0, len(attachments))
 	resolved := make([]resolvedChatAttachment, 0, len(attachments))
 	for _, att := range attachments {
 		if att.MediaID == "" {
-			return nil, nil, nil, fmt.Errorf("attachment media_id is required")
+			cleanupAll()
+			return nil, nil, nil, func() {}, fmt.Errorf("attachment media_id is required")
 		}
 		id, err := uuid.Parse(att.MediaID)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("invalid attachment media_id: %s", att.MediaID)
+			cleanupAll()
+			return nil, nil, nil, func() {}, fmt.Errorf("invalid attachment media_id: %s", att.MediaID)
 		}
 		asset, err := h.mediaAssets.GetMediaAsset(ctx, id)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("load attachment %s: %w", att.MediaID, err)
+			cleanupAll()
+			return nil, nil, nil, func() {}, fmt.Errorf("load attachment %s: %w", att.MediaID, err)
 		}
 		if asset == nil {
-			return nil, nil, nil, fmt.Errorf("attachment not found: %s", att.MediaID)
+			cleanupAll()
+			return nil, nil, nil, func() {}, fmt.Errorf("attachment not found: %s", att.MediaID)
 		}
 		if asset.Status != store.MediaStatusReady {
-			return nil, nil, nil, fmt.Errorf("attachment is not ready: %s", att.MediaID)
+			cleanupAll()
+			return nil, nil, nil, func() {}, fmt.Errorf("attachment is not ready: %s", att.MediaID)
 		}
-		if asset.StorageBackend != "" && asset.StorageBackend != store.MediaStorageLocal {
-			return nil, nil, nil, fmt.Errorf("attachment storage backend %q is not supported by this runtime yet", asset.StorageBackend)
+		localPath, cleanup, err := mediaAssetTempPath(ctx, h.objectStore, asset)
+		if err != nil {
+			cleanupAll()
+			return nil, nil, nil, func() {}, fmt.Errorf("attachment file unavailable: %s", att.MediaID)
 		}
-		if asset.StorageKey == "" {
-			return nil, nil, nil, fmt.Errorf("attachment has no storage key: %s", att.MediaID)
-		}
-		if _, err := os.Stat(asset.StorageKey); err != nil {
-			return nil, nil, nil, fmt.Errorf("attachment file unavailable: %s", att.MediaID)
-		}
+		cleanups = append(cleanups, cleanup)
 		mimeType := asset.MimeType
 		if mimeType == "" {
 			mimeType = mediapkg.DetectMIMEType(asset.OriginalFilename)
 		}
 		kind := mediapkg.MediaKindFromMime(mimeType)
 		files = append(files, bus.MediaFile{
-			Path:     asset.StorageKey,
+			ID:       att.MediaID,
+			Path:     localPath,
 			MimeType: mimeType,
 			Filename: asset.OriginalFilename,
 		})
 		infos = append(infos, mediapkg.MediaInfo{
 			Type:        kind,
-			FilePath:    asset.StorageKey,
+			FilePath:    localPath,
 			FileID:      att.MediaID,
 			ContentType: mimeType,
 			FileName:    asset.OriginalFilename,
@@ -439,7 +456,7 @@ func (h *ChatCompletionsHandler) resolveAttachments(ctx context.Context, attachm
 			Role:     strings.TrimSpace(att.Role),
 		})
 	}
-	return files, infos, resolved, nil
+	return files, infos, resolved, cleanupAll, nil
 }
 
 func (h *ChatCompletionsHandler) handleNonStream(w http.ResponseWriter, r *http.Request, loop agent.Agent, runID, sessionKey, message, model, userID string, mediaFiles []bus.MediaFile, extraSystemPrompt string, memoryAgentID uuid.UUID) {

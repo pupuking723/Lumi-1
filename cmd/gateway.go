@@ -322,8 +322,9 @@ func runGateway() {
 
 	var mcpPool *mcpbridge.Pool
 	var mediaStore *media.Store
+	var objectStore *media.ObjectStore
 	var postTurn tools.PostTurnProcessor
-	contextFileInterceptor, mcpPool, mediaStore, postTurn = wireExtras(pgStores, agentRouter, providerRegistry, modelReg, msgBus, pgStores.Sessions, toolsReg, toolPE, skillsLoader, hasMemory, traceCollector, workspace, cfg.Gateway.InjectionAction, cfg, sandboxMgr, redisClient, domainBus)
+	contextFileInterceptor, mcpPool, mediaStore, objectStore, postTurn = wireExtras(pgStores, agentRouter, providerRegistry, modelReg, msgBus, pgStores.Sessions, toolsReg, toolPE, skillsLoader, hasMemory, traceCollector, workspace, cfg.Gateway.InjectionAction, cfg, sandboxMgr, redisClient, domainBus)
 	if mcpPool != nil {
 		defer mcpPool.Stop()
 	}
@@ -393,6 +394,7 @@ func runGateway() {
 		mcpPool,
 		postTurn,
 		mediaStore,
+		objectStore,
 	)
 
 	// System backup API — admin + owner only, SSE progress streaming.

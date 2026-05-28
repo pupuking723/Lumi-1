@@ -167,11 +167,12 @@ func TestChatCompletionsResolveAttachments(t *testing.T) {
 	h.SetMediaAssetStore(assets)
 
 	ctx := store.WithTenantID(context.Background(), store.MasterTenantID)
-	files, infos, resolved, err := h.resolveAttachments(ctx, []chatAttachment{{MediaID: id.String(), Caption: "today look", Source: "camera", Role: "current"}})
+	files, infos, resolved, cleanup, err := h.resolveAttachments(ctx, []chatAttachment{{MediaID: id.String(), Caption: "today look", Source: "camera", Role: "current"}})
 	if err != nil {
 		t.Fatalf("resolve attachments: %v", err)
 	}
-	if len(files) != 1 || files[0].Path != tmp.Name() || files[0].Filename != "look.png" {
+	defer cleanup()
+	if len(files) != 1 || files[0].ID != id.String() || files[0].Path != tmp.Name() || files[0].Filename != "look.png" {
 		t.Fatalf("files=%#v", files)
 	}
 	if len(infos) != 1 || infos[0].Type != "image" || infos[0].FileName != "look.png" {

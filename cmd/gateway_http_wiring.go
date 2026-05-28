@@ -41,7 +41,12 @@ func (d *gatewayDeps) wireHTTPHandlersOnServer(
 	mcpPool *mcpbridge.Pool,
 	postTurn tools.PostTurnProcessor,
 	mediaStore *media.Store,
+	objectStore *media.ObjectStore,
 ) {
+	if objectStore != nil {
+		d.server.SetObjectStore(objectStore)
+	}
+
 	if h.providers != nil {
 		h.providers.SetAPIBaseFallback(d.cfg.Providers.APIBaseForType)
 	}
@@ -149,6 +154,9 @@ func (d *gatewayDeps) wireHTTPHandlersOnServer(
 		if d.pgStores.MediaAssets != nil {
 			geminiLive.SetMediaAssetStore(d.pgStores.MediaAssets)
 		}
+		if objectStore != nil {
+			geminiLive.SetObjectStore(objectStore)
+		}
 		if d.pgStores.ClosyMemory != nil {
 			geminiLive.SetClosyMemoryStore(d.pgStores.ClosyMemory)
 			d.server.SetClosyMemoryStore(d.pgStores.ClosyMemory)
@@ -175,7 +183,11 @@ func (d *gatewayDeps) wireHTTPHandlersOnServer(
 		d.server.SetClosyProfileHandler(httpapi.NewClosyProfileHandler(d.pgStores.Agents, d.pgStores.ClosyMemory))
 	}
 	if d.pgStores != nil && d.pgStores.ClosyOOTD != nil && d.pgStores.MediaAssets != nil {
-		d.server.SetClosyOOTDHandler(httpapi.NewClosyOOTDHandler(d.agentRouter, d.pgStores.MediaAssets, d.pgStores.ClosyOOTD, d.pgStores.ClosyMemory))
+		ootd := httpapi.NewClosyOOTDHandler(d.agentRouter, d.pgStores.MediaAssets, d.pgStores.ClosyOOTD, d.pgStores.ClosyMemory)
+		if objectStore != nil {
+			ootd.SetObjectStore(objectStore)
+		}
+		d.server.SetClosyOOTDHandler(ootd)
 	}
 	if d.pgStores != nil && d.pgStores.ClosyOOTD != nil && d.pgStores.ClosyShareCards != nil {
 		d.server.SetClosyShareCardsHandler(httpapi.NewClosyShareCardsHandler(d.pgStores.ClosyOOTD, d.pgStores.ClosyShareCards))
@@ -247,7 +259,11 @@ func (d *gatewayDeps) wireHTTPHandlersOnServer(
 	// /v1/chat/completions without changing the console WebSocket upload flow.
 	if mediaStore != nil && d.pgStores != nil && d.pgStores.MediaAssets != nil {
 		d.server.SetMediaAssetStore(d.pgStores.MediaAssets)
-		d.server.SetChatAttachmentUploadHandler(httpapi.NewChatAttachmentUploadHandler(mediaStore, d.pgStores.MediaAssets))
+		uploadHandler := httpapi.NewChatAttachmentUploadHandler(mediaStore, d.pgStores.MediaAssets)
+		if objectStore != nil {
+			uploadHandler.SetObjectStore(objectStore)
+		}
+		d.server.SetChatAttachmentUploadHandler(uploadHandler)
 	}
 
 	// Media serve endpoint — serves persisted media files by ID for WS/web clients.

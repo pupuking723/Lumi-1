@@ -15,9 +15,9 @@ import (
 	"github.com/nextlevelbuilder/goclaw/internal/config"
 	"github.com/nextlevelbuilder/goclaw/internal/eventbus"
 	"github.com/nextlevelbuilder/goclaw/internal/hooks"
-	"github.com/nextlevelbuilder/goclaw/internal/memory"
 	mcpbridge "github.com/nextlevelbuilder/goclaw/internal/mcp"
 	"github.com/nextlevelbuilder/goclaw/internal/media"
+	"github.com/nextlevelbuilder/goclaw/internal/memory"
 	"github.com/nextlevelbuilder/goclaw/internal/providerresolve"
 	"github.com/nextlevelbuilder/goclaw/internal/providers"
 	"github.com/nextlevelbuilder/goclaw/internal/sandbox"
@@ -90,7 +90,8 @@ type ResolverDeps struct {
 	ConfigPermStore store.ConfigPermissionStore
 
 	// Persistent media storage for cross-turn image/document access
-	MediaStore *media.Store
+	MediaStore  *media.Store
+	ObjectStore *media.ObjectStore
 
 	// Model pricing for cost tracking
 	ModelPricing map[string]*config.ModelPricing
@@ -467,7 +468,7 @@ func NewManagedResolver(deps ResolverDeps) ResolverFunc {
 			AgentOtherConfig:       ag.OtherConfig,
 			AgentType:              ag.AgentType,
 			IsTeamLead:             isTeamLead,
-			AutoInjector:          deps.AutoInjector,
+			AutoInjector:           deps.AutoInjector,
 			Provider:               provider,
 			Model:                  ag.Model,
 			ModelRegistry:          deps.ModelRegistry,
@@ -525,6 +526,7 @@ func NewManagedResolver(deps ResolverDeps) ResolverFunc {
 			SecureCLIStore:         deps.SecureCLIStore,
 			OnTextUploaded:         deps.OnTextUploaded,
 			MediaStore:             deps.MediaStore,
+			ObjectStore:            deps.ObjectStore,
 			ModelPricing:           deps.ModelPricing,
 			BudgetMonthlyCents:     derefInt(ag.BudgetMonthlyCents),
 			TracingStore:           deps.TracingStore,

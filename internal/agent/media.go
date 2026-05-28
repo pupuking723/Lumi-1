@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
@@ -121,6 +122,84 @@ func persistAssistantImages(msg *providers.Message, workspace string) {
 	go warnIfMediaDirLarge(mediaDir)
 }
 
+func (l *Loop) persistAssistantImages(msg *providers.Message, workspace string) {
+	if l == nil || l.objectStore == nil {
+		persistAssistantImages(msg, workspace)
+		return
+	}
+	persistAssistantImagesToObjectStore(msg, l.objectStore, l.tenantID, l.id)
+}
+
+func persistAssistantImagesToObjectStore(msg *providers.Message, objectStore *media.ObjectStore, tenantID uuid.UUID, agentKey string) {
+	if objectStore == nil || len(msg.Images) == 0 {
+		return
+	}
+
+	var refs []providers.MediaRef
+	for _, img := range msg.Images {
+		if img.Partial || img.Data == "" || img.MimeType == "" {
+			continue
+		}
+		raw, err := base64.StdEncoding.DecodeString(img.Data)
+		if err != nil {
+			slog.Warn("media: failed to decode assistant image base64", "error", err)
+			continue
+		}
+		if len(raw) == 0 {
+			continue
+		}
+
+		ext := media.ExtFromMime(img.MimeType)
+		if ext == "" {
+			ext = ".bin"
+		}
+		sum := sha256.Sum256(raw)
+		hashHex := fmt.Sprintf("%x", sum)
+		key := objectStore.ArtifactKey(tenantID, agentKey, hashHex, ext)
+
+		tmp, err := os.CreateTemp("", "goclaw-artifact-*"+ext)
+		if err != nil {
+			slog.Warn("media: failed to create assistant artifact temp file", "error", err)
+			continue
+		}
+		tmpPath := tmp.Name()
+		if _, err := tmp.Write(raw); err != nil {
+			_ = tmp.Close()
+			_ = os.Remove(tmpPath)
+			slog.Warn("media: failed to write assistant artifact temp file", "error", err)
+			continue
+		}
+		if err := tmp.Close(); err != nil {
+			_ = os.Remove(tmpPath)
+			slog.Warn("media: failed to close assistant artifact temp file", "error", err)
+			continue
+		}
+		if err := objectStore.UploadFile(context.Background(), key, tmpPath, img.MimeType, int64(len(raw))); err != nil {
+			_ = os.Remove(tmpPath)
+			slog.Warn("media: failed to upload assistant artifact", "key", key, "error", err)
+			continue
+		}
+		_ = os.Remove(tmpPath)
+
+		refURL, err := objectStore.URL(context.Background(), key)
+		if err != nil {
+			slog.Warn("media: failed to sign assistant artifact", "key", key, "error", err)
+		}
+		refs = append(refs, providers.MediaRef{
+			ID:       uuid.New().String(),
+			MimeType: img.MimeType,
+			Kind:     "image",
+			Path:     refURL,
+		})
+	}
+
+	if len(refs) == 0 {
+		return
+	}
+	msg.MediaRefs = append(msg.MediaRefs, refs...)
+	msg.Images = nil
+}
+
 // warnIfMediaDirLarge emits a warn log when {mediaDir} exceeds the disk threshold.
 // Called in a goroutine to avoid blocking the pipeline finalize path.
 func warnIfMediaDirLarge(mediaDir string) {
@@ -226,7 +305,10 @@ func (l *Loop) persistMedia(sessionKey string, files []bus.MediaFile, workspace 
 			}
 		}
 
-		id := uuid.New().String()
+		id := strings.TrimSpace(f.ID)
+		if id == "" {
+			id = uuid.New().String()
+		}
 		ext := media.ExtFromMime(mime)
 		if ext == "" {
 			ext = filepath.Ext(srcPath) // fallback to source extension

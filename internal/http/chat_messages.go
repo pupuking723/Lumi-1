@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/nextlevelbuilder/goclaw/internal/media"
 	"github.com/nextlevelbuilder/goclaw/internal/permissions"
 	"github.com/nextlevelbuilder/goclaw/internal/providers"
 	"github.com/nextlevelbuilder/goclaw/internal/store"
@@ -14,7 +16,9 @@ import (
 
 // ChatMessagesHandler exposes C-side chat session history.
 type ChatMessagesHandler struct {
-	sessions chatMessagesSessionStore
+	sessions    chatMessagesSessionStore
+	mediaAssets store.MediaAssetStore
+	objectStore *media.ObjectStore
 }
 
 type chatMessagesSessionStore interface {
@@ -35,13 +39,23 @@ type chatHistoryMessage struct {
 }
 
 type chatHistoryMediaRef struct {
-	ID       string `json:"id"`
-	Kind     string `json:"kind,omitempty"`
-	MimeType string `json:"mime_type,omitempty"`
+	ID         string `json:"id"`
+	Kind       string `json:"kind,omitempty"`
+	MimeType   string `json:"mime_type,omitempty"`
+	URL        string `json:"url,omitempty"`
+	PreviewURL string `json:"preview_url,omitempty"`
 }
 
 func NewChatMessagesHandler(sess chatMessagesSessionStore) *ChatMessagesHandler {
 	return &ChatMessagesHandler{sessions: sess}
+}
+
+func (h *ChatMessagesHandler) SetMediaAssetStore(st store.MediaAssetStore) {
+	h.mediaAssets = st
+}
+
+func (h *ChatMessagesHandler) SetObjectStore(objectStore *media.ObjectStore) {
+	h.objectStore = objectStore
 }
 
 func (h *ChatMessagesHandler) RegisterRoutes(mux *http.ServeMux) {
@@ -67,11 +81,11 @@ func (h *ChatMessagesHandler) handleList(w http.ResponseWriter, r *http.Request)
 	history := h.sessions.GetHistory(r.Context(), sessionKey)
 	writeJSON(w, http.StatusOK, chatMessagesResponse{
 		SessionID: sessionKey,
-		Messages:  toChatHistoryMessages(history),
+		Messages:  h.toChatHistoryMessages(r.Context(), history),
 	})
 }
 
-func toChatHistoryMessages(history []providers.Message) []chatHistoryMessage {
+func (h *ChatMessagesHandler) toChatHistoryMessages(ctx context.Context, history []providers.Message) []chatHistoryMessage {
 	result := make([]chatHistoryMessage, 0, len(history))
 	for i, msg := range history {
 		result = append(result, chatHistoryMessage{
@@ -79,7 +93,7 @@ func toChatHistoryMessages(history []providers.Message) []chatHistoryMessage {
 			Role:      msg.Role,
 			Content:   msg.Content,
 			CreatedAt: chatHistoryCreatedAt(msg),
-			MediaRefs: toChatHistoryMediaRefs(msg.MediaRefs),
+			MediaRefs: h.toChatHistoryMediaRefs(ctx, msg.MediaRefs),
 		})
 	}
 	return result
@@ -92,17 +106,38 @@ func chatHistoryCreatedAt(msg providers.Message) string {
 	return msg.CreatedAt.UTC().Format(time.RFC3339Nano)
 }
 
-func toChatHistoryMediaRefs(refs []providers.MediaRef) []chatHistoryMediaRef {
+func (h *ChatMessagesHandler) toChatHistoryMediaRefs(ctx context.Context, refs []providers.MediaRef) []chatHistoryMediaRef {
 	if len(refs) == 0 {
 		return nil
 	}
 	result := make([]chatHistoryMediaRef, 0, len(refs))
 	for _, ref := range refs {
+		u := h.mediaRefURL(ctx, ref)
 		result = append(result, chatHistoryMediaRef{
-			ID:       ref.ID,
-			Kind:     ref.Kind,
-			MimeType: ref.MimeType,
+			ID:         ref.ID,
+			Kind:       ref.Kind,
+			MimeType:   ref.MimeType,
+			URL:        u,
+			PreviewURL: u,
 		})
 	}
 	return result
+}
+
+func (h *ChatMessagesHandler) mediaRefURL(ctx context.Context, ref providers.MediaRef) string {
+	if strings.HasPrefix(ref.Path, "https://") || strings.HasPrefix(ref.Path, "http://") {
+		return ref.Path
+	}
+	if h == nil || h.mediaAssets == nil || strings.TrimSpace(ref.ID) == "" {
+		return ""
+	}
+	id, err := uuid.Parse(ref.ID)
+	if err != nil {
+		return ""
+	}
+	asset, err := h.mediaAssets.GetMediaAsset(ctx, id)
+	if err != nil || asset == nil {
+		return ""
+	}
+	return mediaAssetURL(ctx, h.objectStore, asset)
 }

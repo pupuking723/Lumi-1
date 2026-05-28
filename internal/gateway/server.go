@@ -21,6 +21,7 @@ import (
 	"github.com/nextlevelbuilder/goclaw/internal/config"
 	httpapi "github.com/nextlevelbuilder/goclaw/internal/http"
 	mcpbridge "github.com/nextlevelbuilder/goclaw/internal/mcp"
+	"github.com/nextlevelbuilder/goclaw/internal/media"
 	"github.com/nextlevelbuilder/goclaw/internal/permissions"
 	"github.com/nextlevelbuilder/goclaw/internal/providers"
 	"github.com/nextlevelbuilder/goclaw/internal/store"
@@ -54,6 +55,7 @@ type Server struct {
 	agentStore     store.AgentStore  // for context injection in tools_invoke
 	msgBus         *bus.MessageBus   // for MCP bridge media delivery
 	mediaAssets    store.MediaAssetStore
+	objectStore    *media.ObjectStore
 	closyMemory    store.ClosyMemoryStore
 
 	upgrader    websocket.Upgrader
@@ -154,6 +156,9 @@ func (s *Server) BuildMux() *http.ServeMux {
 	if s.mediaAssets != nil {
 		chatHandler.SetMediaAssetStore(s.mediaAssets)
 	}
+	if s.objectStore != nil {
+		chatHandler.SetObjectStore(s.objectStore)
+	}
 	if s.closyMemory != nil {
 		chatHandler.SetClosyMemoryStore(s.agentStore, s.closyMemory)
 	}
@@ -164,7 +169,14 @@ func (s *Server) BuildMux() *http.ServeMux {
 		chatHandler.SetPostTurnProcessor(s.postTurn)
 	}
 	mux.Handle("/v1/chat/completions", chatHandler)
-	httpapi.NewChatMessagesHandler(s.sessions).RegisterRoutes(mux)
+	messagesHandler := httpapi.NewChatMessagesHandler(s.sessions)
+	if s.mediaAssets != nil {
+		messagesHandler.SetMediaAssetStore(s.mediaAssets)
+	}
+	if s.objectStore != nil {
+		messagesHandler.SetObjectStore(s.objectStore)
+	}
+	messagesHandler.RegisterRoutes(mux)
 
 	// OpenResponses protocol
 	responsesHandler := httpapi.NewResponsesHandler(s.agents, s.sessions)
@@ -513,6 +525,9 @@ func (s *Server) SetChatAttachmentUploadHandler(h *httpapi.ChatAttachmentUploadH
 // SetMediaAssetStore sets the media asset store used by HTTP chat completions.
 func (s *Server) SetMediaAssetStore(st store.MediaAssetStore) { s.mediaAssets = st }
 
+// SetObjectStore sets the object storage resolver used by C-side media APIs.
+func (s *Server) SetObjectStore(st *media.ObjectStore) { s.objectStore = st }
+
 // SetClosyMemoryStore sets the Mochi domain memory store used by C-side chat.
 func (s *Server) SetClosyMemoryStore(st store.ClosyMemoryStore) { s.closyMemory = st }
 
@@ -722,6 +737,9 @@ func StartTestServer(s *Server, ctx context.Context) (addr string, start func())
 	if s.mediaAssets != nil {
 		chatHandler.SetMediaAssetStore(s.mediaAssets)
 	}
+	if s.objectStore != nil {
+		chatHandler.SetObjectStore(s.objectStore)
+	}
 	if s.closyMemory != nil {
 		chatHandler.SetClosyMemoryStore(s.agentStore, s.closyMemory)
 	}
@@ -732,7 +750,14 @@ func StartTestServer(s *Server, ctx context.Context) (addr string, start func())
 		chatHandler.SetPostTurnProcessor(s.postTurn)
 	}
 	mux.Handle("/v1/chat/completions", chatHandler)
-	httpapi.NewChatMessagesHandler(s.sessions).RegisterRoutes(mux)
+	messagesHandler := httpapi.NewChatMessagesHandler(s.sessions)
+	if s.mediaAssets != nil {
+		messagesHandler.SetMediaAssetStore(s.mediaAssets)
+	}
+	if s.objectStore != nil {
+		messagesHandler.SetObjectStore(s.objectStore)
+	}
+	messagesHandler.RegisterRoutes(mux)
 
 	responsesHandler := httpapi.NewResponsesHandler(s.agents, s.sessions)
 	if s.postTurn != nil {
