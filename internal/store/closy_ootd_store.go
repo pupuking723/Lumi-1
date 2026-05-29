@@ -62,8 +62,14 @@ type ListClosyOOTDReviewsParams struct {
 	Since  *time.Time
 }
 
+type FindLatestClosyOOTDReportParams struct {
+	UserID  string
+	MediaID uuid.UUID
+}
+
 type ClosyOOTDStore interface {
 	CreateClosyOOTDReview(ctx context.Context, p CreateClosyOOTDReviewParams) (*ClosyOOTDReviewData, error)
 	GetClosyOOTDReview(ctx context.Context, id uuid.UUID) (*ClosyOOTDReviewData, error)
 	ListClosyOOTDReviews(ctx context.Context, p ListClosyOOTDReviewsParams) ([]ClosyOOTDReviewData, error)
+	FindLatestClosyOOTDReport(ctx context.Context, p FindLatestClosyOOTDReportParams) (*ClosyOOTDReviewData, error)
 }

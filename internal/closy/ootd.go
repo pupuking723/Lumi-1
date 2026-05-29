@@ -11,6 +11,7 @@ import (
 var (
 	ErrInvalidOOTDReport = errors.New("model_output_invalid")
 	ErrUnsafeOOTDReport  = errors.New("unsafe_analysis_output")
+	ootdPaletteHex       = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
 )
 
 type OOTDReviewResult struct {
@@ -56,6 +57,117 @@ type OOTDShareCardCopy struct {
 	Quote  string   `json:"quote"`
 	Advice []string `json:"advice"`
 	CTA    string   `json:"cta"`
+}
+
+func OOTDReportJSONSchema() map[string]any {
+	return map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"required":             []any{"todayJudgment"},
+		"properties": map[string]any{
+			"todayJudgment": map[string]any{
+				"type":                 "object",
+				"additionalProperties": false,
+				"required":             []any{"title", "score", "label"},
+				"properties": map[string]any{
+					"title":   map[string]any{"type": "string"},
+					"score":   map[string]any{"type": "number", "minimum": 0, "maximum": 10},
+					"label":   map[string]any{"type": "string"},
+					"summary": map[string]any{"type": "string"},
+				},
+			},
+			"overallStyle": map[string]any{"type": "string"},
+			"highlights":   map[string]any{"type": "array", "maxItems": 3, "items": map[string]any{"type": "string"}},
+			"biggestIssue": map[string]any{"type": "string"},
+			"suggestions": map[string]any{
+				"type":     "array",
+				"maxItems": 3,
+				"items": map[string]any{
+					"type":                 "object",
+					"additionalProperties": false,
+					"properties": map[string]any{
+						"title": map[string]any{"type": "string"},
+						"body":  map[string]any{"type": "string"},
+					},
+				},
+			},
+			"palette": map[string]any{
+				"type":     "array",
+				"maxItems": 4,
+				"items": map[string]any{
+					"type":                 "object",
+					"additionalProperties": false,
+					"properties": map[string]any{
+						"name": map[string]any{"type": "string"},
+						"hex":  map[string]any{"type": "string", "pattern": "^#[0-9A-Fa-f]{6}$"},
+					},
+				},
+			},
+			"mochiLine": map[string]any{"type": "string"},
+			"shareCard": map[string]any{
+				"type":                 "object",
+				"additionalProperties": false,
+				"properties": map[string]any{
+					"title":  map[string]any{"type": "string"},
+					"quote":  map[string]any{"type": "string"},
+					"advice": map[string]any{"type": "array", "maxItems": 2, "items": map[string]any{"type": "string"}},
+					"cta":    map[string]any{"type": "string"},
+				},
+			},
+		},
+	}
+}
+
+func OOTDReportVertexSchema() map[string]any {
+	return map[string]any{
+		"type":     "OBJECT",
+		"required": []any{"todayJudgment"},
+		"properties": map[string]any{
+			"todayJudgment": map[string]any{
+				"type":     "OBJECT",
+				"required": []any{"title", "score", "label"},
+				"properties": map[string]any{
+					"title":   map[string]any{"type": "STRING"},
+					"score":   map[string]any{"type": "NUMBER"},
+					"label":   map[string]any{"type": "STRING"},
+					"summary": map[string]any{"type": "STRING"},
+				},
+			},
+			"overallStyle": map[string]any{"type": "STRING"},
+			"highlights":   map[string]any{"type": "ARRAY", "items": map[string]any{"type": "STRING"}},
+			"biggestIssue": map[string]any{"type": "STRING"},
+			"suggestions": map[string]any{
+				"type": "ARRAY",
+				"items": map[string]any{
+					"type": "OBJECT",
+					"properties": map[string]any{
+						"title": map[string]any{"type": "STRING"},
+						"body":  map[string]any{"type": "STRING"},
+					},
+				},
+			},
+			"palette": map[string]any{
+				"type": "ARRAY",
+				"items": map[string]any{
+					"type": "OBJECT",
+					"properties": map[string]any{
+						"name": map[string]any{"type": "STRING"},
+						"hex":  map[string]any{"type": "STRING"},
+					},
+				},
+			},
+			"mochiLine": map[string]any{"type": "STRING"},
+			"shareCard": map[string]any{
+				"type": "OBJECT",
+				"properties": map[string]any{
+					"title":  map[string]any{"type": "STRING"},
+					"quote":  map[string]any{"type": "STRING"},
+					"advice": map[string]any{"type": "ARRAY", "items": map[string]any{"type": "STRING"}},
+					"cta":    map[string]any{"type": "STRING"},
+				},
+			},
+		},
+	}
 }
 
 func BuildOOTDReviewPrompt(note, occasion, memoryPrompt string) string {
@@ -121,9 +233,9 @@ func BuildOOTDReportPrompt(skillBody, note, scene, memoryPrompt, outputLanguage 
 		b.WriteString("\n")
 	}
 	b.WriteString(`
-Return only compact JSON with this exact shape:
+Return only compact JSON. The only required object is todayJudgment with title, score, and label. Add the other fields when there is enough visible evidence:
 {
-  "todayJudgment": {"title": "short judgement title", "score": 0, "label": "short score label", "summary": "one UI-ready summary"},
+  "todayJudgment": {"title": "short judgement title", "score": 0, "label": "short score label", "summary": "optional UI-ready summary"},
   "overallStyle": "one concise style description",
   "highlights": ["up to 3 clothing/styling highlights"],
   "biggestIssue": "one biggest clothing/styling issue, not about the user's body",
@@ -148,7 +260,8 @@ Rules:
 }
 
 func BuildOOTDReportRepairPrompt(raw string, validationErr error) string {
-	return strings.TrimSpace(fmt.Sprintf(`Repair the previous OOTD JSON so it exactly matches the required OOTDReport schema.
+	return strings.TrimSpace(fmt.Sprintf(`Repair the previous OOTD JSON so it is valid OOTDReport JSON.
+Only todayJudgment.title, todayJudgment.score, and todayJudgment.label are required. Keep optional fields only when they are supported by visible evidence.
 Return only compact JSON. Do not add Markdown or explanation.
 Use only visible evidence from the current image. Remove any claims about prior chats, repeated uploads, hidden memory, fictional story, identity, or user intent.
 If a visible wearable outfit appears in the image, analyze that visible outfit even if it looks like a reference image, stock photo, poster, screenshot, or cropped upload. Do not say the image is unavailable unless the previous output explicitly reported a real file/read error from the system.
@@ -185,6 +298,9 @@ func ParseOOTDReport(raw string) (OOTDReport, error) {
 	if err := json.Unmarshal([]byte(payload), &report); err != nil {
 		return OOTDReport{}, fmt.Errorf("%w: %v", ErrInvalidOOTDReport, err)
 	}
+	if !ootdReportHasCoreScore(payload) {
+		return report, fmt.Errorf("%w: missing fields: todayJudgment.score", ErrInvalidOOTDReport)
+	}
 	report = sanitizeOOTDReportWhitespace(report)
 	if err := ValidateOOTDReport(report); err != nil {
 		return report, err
@@ -207,69 +323,23 @@ func ValidateOOTDReport(report OOTDReport) error {
 	if strings.TrimSpace(report.TodayJudgment.Label) == "" {
 		missing = append(missing, "todayJudgment.label")
 	}
-	if strings.TrimSpace(report.TodayJudgment.Summary) == "" {
-		missing = append(missing, "todayJudgment.summary")
-	}
-	if strings.TrimSpace(report.OverallStyle) == "" {
-		missing = append(missing, "overallStyle")
-	}
-	if len(report.Highlights) == 0 {
-		missing = append(missing, "highlights")
-	}
-	if strings.TrimSpace(report.BiggestIssue) == "" {
-		missing = append(missing, "biggestIssue")
-	}
-	if len(report.Suggestions) == 0 {
-		missing = append(missing, "suggestions")
-	}
-	if len(report.Palette) == 0 {
-		missing = append(missing, "palette")
-	}
-	if strings.TrimSpace(report.MochiLine) == "" {
-		missing = append(missing, "mochiLine")
-	}
-	if strings.TrimSpace(report.ShareCard.Title) == "" {
-		missing = append(missing, "shareCard.title")
-	}
-	if strings.TrimSpace(report.ShareCard.Quote) == "" {
-		missing = append(missing, "shareCard.quote")
-	}
-	if strings.TrimSpace(report.ShareCard.CTA) == "" {
-		missing = append(missing, "shareCard.cta")
-	}
-	if len(report.ShareCard.Advice) == 0 {
-		missing = append(missing, "shareCard.advice")
-	}
 	if len(missing) > 0 {
 		return fmt.Errorf("%w: missing fields: %s", ErrInvalidOOTDReport, strings.Join(missing, ", "))
 	}
 	if report.TodayJudgment.Score < 0 || report.TodayJudgment.Score > 10 {
 		return fmt.Errorf("%w: todayJudgment.score must be between 0 and 10", ErrInvalidOOTDReport)
 	}
-	if len(report.Highlights) > 3 {
-		return fmt.Errorf("%w: highlights must contain at most 3 items", ErrInvalidOOTDReport)
-	}
-	if len(report.Suggestions) > 3 {
-		return fmt.Errorf("%w: suggestions must contain at most 3 items", ErrInvalidOOTDReport)
-	}
-	if len(report.Palette) > 4 {
-		return fmt.Errorf("%w: palette must contain at most 4 colors", ErrInvalidOOTDReport)
-	}
-	if len(report.ShareCard.Advice) > 2 {
-		return fmt.Errorf("%w: shareCard.advice must contain at most 2 items", ErrInvalidOOTDReport)
-	}
-	hex := regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
 	for i, color := range report.Palette {
 		if strings.TrimSpace(color.Name) == "" {
 			return fmt.Errorf("%w: palette[%d].name is required", ErrInvalidOOTDReport, i)
 		}
-		if !hex.MatchString(color.Hex) {
+		if !ootdPaletteHex.MatchString(color.Hex) {
 			return fmt.Errorf("%w: palette[%d].hex must be #RRGGBB", ErrInvalidOOTDReport, i)
 		}
 	}
 	for i, suggestion := range report.Suggestions {
-		if strings.TrimSpace(suggestion.Title) == "" || strings.TrimSpace(suggestion.Body) == "" {
-			return fmt.Errorf("%w: suggestions[%d] requires title and body", ErrInvalidOOTDReport, i)
+		if strings.TrimSpace(suggestion.Title) == "" && strings.TrimSpace(suggestion.Body) == "" {
+			return fmt.Errorf("%w: suggestions[%d] is empty", ErrInvalidOOTDReport, i)
 		}
 	}
 	for i, value := range report.Highlights {
@@ -340,21 +410,71 @@ func sanitizeOOTDReportWhitespace(report OOTDReport) OOTDReport {
 	report.ShareCard.Title = strings.TrimSpace(report.ShareCard.Title)
 	report.ShareCard.Quote = strings.TrimSpace(report.ShareCard.Quote)
 	report.ShareCard.CTA = strings.TrimSpace(report.ShareCard.CTA)
-	for i := range report.Highlights {
-		report.Highlights[i] = strings.TrimSpace(report.Highlights[i])
+	report.TodayJudgment.Title = truncateRunes(report.TodayJudgment.Title, 32)
+	report.MochiLine = truncateRunes(report.MochiLine, 80)
+	report.ShareCard.Quote = truncateRunes(report.ShareCard.Quote, 80)
+	highlights := report.Highlights[:0]
+	for _, value := range report.Highlights {
+		if value = strings.TrimSpace(value); value != "" {
+			highlights = append(highlights, value)
+		}
 	}
-	for i := range report.Suggestions {
-		report.Suggestions[i].Title = strings.TrimSpace(report.Suggestions[i].Title)
-		report.Suggestions[i].Body = strings.TrimSpace(report.Suggestions[i].Body)
+	report.Highlights = highlights
+	if len(report.Highlights) > 3 {
+		report.Highlights = report.Highlights[:3]
 	}
-	for i := range report.Palette {
-		report.Palette[i].Name = strings.TrimSpace(report.Palette[i].Name)
-		report.Palette[i].Hex = strings.ToUpper(strings.TrimSpace(report.Palette[i].Hex))
+	suggestions := report.Suggestions[:0]
+	for _, suggestion := range report.Suggestions {
+		suggestion.Title = strings.TrimSpace(suggestion.Title)
+		suggestion.Body = strings.TrimSpace(suggestion.Body)
+		if suggestion.Title != "" || suggestion.Body != "" {
+			suggestions = append(suggestions, suggestion)
+		}
 	}
-	for i := range report.ShareCard.Advice {
-		report.ShareCard.Advice[i] = strings.TrimSpace(report.ShareCard.Advice[i])
+	report.Suggestions = suggestions
+	if len(report.Suggestions) > 3 {
+		report.Suggestions = report.Suggestions[:3]
+	}
+	palette := report.Palette[:0]
+	for _, color := range report.Palette {
+		color.Name = strings.TrimSpace(color.Name)
+		color.Hex = strings.ToUpper(strings.TrimSpace(color.Hex))
+		if color.Name != "" && ootdPaletteHex.MatchString(color.Hex) {
+			palette = append(palette, color)
+		}
+	}
+	report.Palette = palette
+	if len(report.Palette) > 4 {
+		report.Palette = report.Palette[:4]
+	}
+	advice := report.ShareCard.Advice[:0]
+	for _, value := range report.ShareCard.Advice {
+		if value = strings.TrimSpace(value); value != "" {
+			advice = append(advice, value)
+		}
+	}
+	report.ShareCard.Advice = advice
+	if len(report.ShareCard.Advice) > 2 {
+		report.ShareCard.Advice = report.ShareCard.Advice[:2]
 	}
 	return report
+}
+
+func ootdReportHasCoreScore(payload string) bool {
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(payload), &root); err != nil {
+		return false
+	}
+	rawJudgment, ok := root["todayJudgment"]
+	if !ok {
+		return false
+	}
+	var judgment map[string]json.RawMessage
+	if err := json.Unmarshal(rawJudgment, &judgment); err != nil {
+		return false
+	}
+	_, ok = judgment["score"]
+	return ok
 }
 
 func ootdReportText(report OOTDReport) string {
@@ -408,6 +528,68 @@ func fallbackOOTDReviewResult(raw string) OOTDReviewResult {
 		Suggestion:       truncateRunes(text, 220),
 		MochiLine:        "先给你一个能用的方向，结构我们下一轮补齐。",
 		SafetyNotes:      "fallback_from_unstructured_response",
+	})
+}
+
+func FallbackOOTDReport(validationErr error, outputLanguage string) OOTDReport {
+	_ = validationErr
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(outputLanguage)), "zh") {
+		return sanitizeOOTDReportWhitespace(OOTDReport{
+			TodayJudgment: OOTDTodayJudgment{
+				Title:   "需要重新生成",
+				Score:   0,
+				Label:   "重试",
+				Summary: "Mochi 这次没有拿到稳定的穿搭报告。",
+			},
+			OverallStyle: "待重新识别",
+			Highlights: []string{
+				"图片已进入 OOTD 流程。",
+			},
+			BiggestIssue: "结构化报告没有通过校验。",
+			Suggestions: []OOTDSuggestion{
+				{Title: "换一张更清晰的全身照", Body: "保持光线稳定，让上衣、下装、鞋和外套都在画面里。"},
+				{Title: "补充场景", Body: "告诉 Mochi 你要去上班、约会、上课还是旅行。"},
+			},
+			Palette: []OOTDPalette{
+				{Name: "Neutral", Hex: "#F7F6F8"},
+				{Name: "Ink", Hex: "#302D43"},
+			},
+			MochiLine: "我需要一张更稳的图，再认真给这套打分。",
+			ShareCard: OOTDShareCardCopy{
+				Title:  "需要重新生成",
+				Quote:  "我需要一张更稳的图，再认真给这套打分。",
+				Advice: []string{"换一张清晰全身照", "补充今天的场景"},
+				CTA:    "让 Mochi 看看你的 OOTD",
+			},
+		})
+	}
+	return sanitizeOOTDReportWhitespace(OOTDReport{
+		TodayJudgment: OOTDTodayJudgment{
+			Title:   "Needs another pass",
+			Score:   0,
+			Label:   "Retry",
+			Summary: "Mochi could not turn this image into a stable outfit report yet.",
+		},
+		OverallStyle: "Pending outfit read",
+		Highlights: []string{
+			"The image entered the OOTD flow.",
+		},
+		BiggestIssue: "The structured report did not pass validation.",
+		Suggestions: []OOTDSuggestion{
+			{Title: "Send a clearer full-body photo", Body: "Use steady light and keep the top, bottom, shoes, and outer layer in frame."},
+			{Title: "Add the occasion", Body: "Tell Mochi whether this is for work, school, a date, a party, or travel."},
+		},
+		Palette: []OOTDPalette{
+			{Name: "Neutral", Hex: "#F7F6F8"},
+			{Name: "Ink", Hex: "#302D43"},
+		},
+		MochiLine: "I need one cleaner read before I rate this look.",
+		ShareCard: OOTDShareCardCopy{
+			Title:  "Needs another pass",
+			Quote:  "I need one cleaner read before I rate this look.",
+			Advice: []string{"Send a clearer full-body photo", "Add today's occasion"},
+			CTA:    "Let Mochi read your OOTD",
+		},
 	})
 }
 

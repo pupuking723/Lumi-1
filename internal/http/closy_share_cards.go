@@ -274,6 +274,13 @@ func (h *ClosyShareCardsHandler) handlePublicSlug(w http.ResponseWriter, r *http
 	}
 	nextViewCount := card.ViewCount + 1
 	_ = h.cards.IncrementClosyShareCardViews(r.Context(), card.ID)
+	if !shareCardRequestWantsJSON(r) {
+		http.Redirect(w, r, absoluteRequestURL(r, "/", url.Values{
+			"from":  []string{"mochi_share"},
+			"share": []string{card.Slug},
+		}), http.StatusFound)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"slug":       card.Slug,
 		"share_url":  card.ShareURL,
@@ -298,6 +305,11 @@ func parseOptionalRFC3339(value string) (*time.Time, error) {
 
 func shareCardExpired(expiresAt *time.Time) bool {
 	return expiresAt != nil && time.Now().UTC().After(expiresAt.UTC())
+}
+
+func shareCardRequestWantsJSON(r *http.Request) bool {
+	accept := strings.ToLower(r.Header.Get("Accept"))
+	return strings.Contains(accept, "application/json") || strings.Contains(accept, "text/json")
 }
 
 func absoluteRequestURL(r *http.Request, path string, query url.Values) string {

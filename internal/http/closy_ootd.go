@@ -18,6 +18,7 @@ import (
 	"github.com/nextlevelbuilder/goclaw/internal/i18n"
 	"github.com/nextlevelbuilder/goclaw/internal/media"
 	"github.com/nextlevelbuilder/goclaw/internal/permissions"
+	"github.com/nextlevelbuilder/goclaw/internal/providers"
 	"github.com/nextlevelbuilder/goclaw/internal/sessions"
 	"github.com/nextlevelbuilder/goclaw/internal/skills"
 	"github.com/nextlevelbuilder/goclaw/internal/store"
@@ -198,16 +199,25 @@ func (h *ClosyOOTDHandler) handleCreateReport(w http.ResponseWriter, r *http.Req
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "user_id is required"})
 		return
 	}
+	asset, err := h.loadOOTDMediaAsset(r.Context(), req.MediaID)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if asset.UserID != "" && asset.UserID != userID {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "user_id does not match media owner"})
+		return
+	}
+	if existingReview, existingReport, ok := h.findReusableOOTDReport(r.Context(), userID, asset.ID); ok {
+		writeJSON(w, http.StatusOK, ootdReportResponse(existingReview, existingReport))
+		return
+	}
 	media, asset, cleanupMedia, err := h.resolveOOTDMedia(r.Context(), req.MediaID)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 	defer cleanupMedia()
-	if asset.UserID != "" && asset.UserID != userID {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "user_id does not match media owner"})
-		return
-	}
 	loop, err := h.agents.Get(r.Context(), closy.AgentKey)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Mochi agent not found"})
@@ -232,8 +242,8 @@ func (h *ClosyOOTDHandler) handleCreateReport(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if errors.Is(runErr, closy.ErrInvalidOOTDReport) {
-		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "model_output_invalid"})
-		return
+		report = closy.FallbackOOTDReport(runErr, ootdOutputLanguage(r, locale))
+		runErr = nil
 	}
 	if runErr != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": runErr.Error()})
@@ -352,28 +362,54 @@ func (h *ClosyOOTDHandler) handleList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ClosyOOTDHandler) resolveOOTDMedia(ctx context.Context, mediaID string) (bus.MediaFile, *store.MediaAssetData, func(), error) {
-	id, err := uuid.Parse(strings.TrimSpace(mediaID))
+	asset, err := h.loadOOTDMediaAsset(ctx, mediaID)
 	if err != nil {
-		return bus.MediaFile{}, nil, func() {}, fmt.Errorf("valid media_id is required")
-	}
-	asset, err := h.mediaAssets.GetMediaAsset(ctx, id)
-	if err != nil {
-		return bus.MediaFile{}, nil, func() {}, fmt.Errorf("load media %s: %w", mediaID, err)
-	}
-	if asset == nil {
-		return bus.MediaFile{}, nil, func() {}, fmt.Errorf("media not found: %s", mediaID)
-	}
-	if asset.Status != store.MediaStatusReady {
-		return bus.MediaFile{}, nil, func() {}, fmt.Errorf("media is not ready: %s", mediaID)
-	}
-	if !strings.HasPrefix(strings.ToLower(asset.MimeType), "image/") {
-		return bus.MediaFile{}, nil, func() {}, fmt.Errorf("OOTD review requires image/* media, got %q", asset.MimeType)
+		return bus.MediaFile{}, nil, func() {}, err
 	}
 	localPath, cleanup, err := mediaAssetTempPath(ctx, h.objectStore, asset)
 	if err != nil {
 		return bus.MediaFile{}, nil, func() {}, err
 	}
 	return bus.MediaFile{ID: asset.ID.String(), Path: localPath, MimeType: asset.MimeType, Filename: asset.OriginalFilename}, asset, cleanup, nil
+}
+
+func (h *ClosyOOTDHandler) loadOOTDMediaAsset(ctx context.Context, mediaID string) (*store.MediaAssetData, error) {
+	id, err := uuid.Parse(strings.TrimSpace(mediaID))
+	if err != nil {
+		return nil, fmt.Errorf("valid media_id is required")
+	}
+	asset, err := h.mediaAssets.GetMediaAsset(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("load media %s: %w", mediaID, err)
+	}
+	if asset == nil {
+		return nil, fmt.Errorf("media not found: %s", mediaID)
+	}
+	if asset.Status != store.MediaStatusReady {
+		return nil, fmt.Errorf("media is not ready: %s", mediaID)
+	}
+	if !strings.HasPrefix(strings.ToLower(asset.MimeType), "image/") {
+		return nil, fmt.Errorf("OOTD review requires image/* media, got %q", asset.MimeType)
+	}
+	return asset, nil
+}
+
+func (h *ClosyOOTDHandler) findReusableOOTDReport(ctx context.Context, userID string, mediaID uuid.UUID) (*store.ClosyOOTDReviewData, closy.OOTDReport, bool) {
+	if h == nil || h.reviews == nil || strings.TrimSpace(userID) == "" || mediaID == uuid.Nil {
+		return nil, closy.OOTDReport{}, false
+	}
+	review, err := h.reviews.FindLatestClosyOOTDReport(ctx, store.FindLatestClosyOOTDReportParams{
+		UserID:  strings.TrimSpace(userID),
+		MediaID: mediaID,
+	})
+	if err != nil || review == nil {
+		return nil, closy.OOTDReport{}, false
+	}
+	report, err := ootdReportFromReview(review)
+	if err != nil {
+		return nil, closy.OOTDReport{}, false
+	}
+	return review, report, true
 }
 
 func (h *ClosyOOTDHandler) runOOTDReview(ctx context.Context, loop agent.Agent, sessionKey, runID, userID, prompt string, media bus.MediaFile) (closy.OOTDReviewResult, string, error) {
@@ -415,6 +451,12 @@ func (h *ClosyOOTDHandler) runOOTDReport(ctx context.Context, loop agent.Agent, 
 		RunID:             runID,
 		UserID:            userID,
 		Stream:            false,
+		ProviderOptions: map[string]any{
+			providers.OptResponseMimeType:       "application/json",
+			providers.OptResponseSchema:         closy.OOTDReportVertexSchema(),
+			providers.OptResponseJSONSchemaName: "ootd_report",
+			providers.OptResponseJSONSchema:     closy.OOTDReportJSONSchema(),
+		},
 	})
 	if err != nil {
 		return closy.OOTDReport{}, "", err

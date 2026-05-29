@@ -88,6 +88,34 @@ func TestBuildRequestBody_TemperatureSkippedForReasoningModels(t *testing.T) {
 	}
 }
 
+func TestBuildRequestBody_UsesStructuredResponseOptions(t *testing.T) {
+	p := NewOpenAIProvider("test", "key", "https://api.openai.com/v1", "gpt-4o")
+	schema := map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"properties":           map[string]any{"title": map[string]any{"type": "string"}},
+		"required":             []any{"title"},
+	}
+	body := p.buildRequestBody("gpt-4o", ChatRequest{
+		Messages: []Message{{Role: "user", Content: "json"}},
+		Options: map[string]any{
+			OptResponseJSONSchemaName: "ootd_report",
+			OptResponseJSONSchema:     schema,
+		},
+	}, false)
+	format, ok := body["response_format"].(map[string]any)
+	if !ok || format["type"] != "json_schema" {
+		t.Fatalf("response_format = %#v", body["response_format"])
+	}
+	jsonSchema, ok := format["json_schema"].(map[string]any)
+	if !ok || jsonSchema["name"] != "ootd_report" || jsonSchema["strict"] != true {
+		t.Fatalf("json_schema = %#v", format["json_schema"])
+	}
+	if jsonSchema["schema"] == nil {
+		t.Fatalf("missing schema: %#v", jsonSchema)
+	}
+}
+
 func TestBuildRequestBody_TemperatureKeptForNonReasoningModels(t *testing.T) {
 	p := NewOpenAIProvider("test", "key", "https://api.openai.com/v1", "gpt-4")
 

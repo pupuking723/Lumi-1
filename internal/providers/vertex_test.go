@@ -103,6 +103,26 @@ func TestVertexRequestGroupsConsecutiveToolResponses(t *testing.T) {
 	}
 }
 
+func TestVertexRequestUsesStructuredResponseOptions(t *testing.T) {
+	schema := map[string]any{
+		"type":       "OBJECT",
+		"properties": map[string]any{"title": map[string]any{"type": "STRING"}},
+	}
+	got := vertexRequestFromChat(ChatRequest{
+		Messages: []Message{{Role: "user", Content: "json"}},
+		Options: map[string]any{
+			OptResponseMimeType: "application/json",
+			OptResponseSchema:   schema,
+		},
+	})
+	if got.GenerationConfig.ResponseMimeType != "application/json" {
+		t.Fatalf("response mime = %q", got.GenerationConfig.ResponseMimeType)
+	}
+	if got.GenerationConfig.ResponseSchema == nil || got.GenerationConfig.ResponseSchema["type"] != "OBJECT" {
+		t.Fatalf("response schema = %#v", got.GenerationConfig.ResponseSchema)
+	}
+}
+
 func TestVertexProviderChatStreamParsesSSE(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasSuffix(r.URL.String(), ":streamGenerateContent?alt=sse") {

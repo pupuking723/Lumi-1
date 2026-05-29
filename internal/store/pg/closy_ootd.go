@@ -91,6 +91,50 @@ func (s *PGClosyOOTDStore) GetClosyOOTDReview(ctx context.Context, id uuid.UUID)
 	return &r, nil
 }
 
+func (s *PGClosyOOTDStore) FindLatestClosyOOTDReport(ctx context.Context, p store.FindLatestClosyOOTDReportParams) (*store.ClosyOOTDReviewData, error) {
+	userID := strings.TrimSpace(p.UserID)
+	if userID == "" {
+		return nil, fmt.Errorf("closy ootd user_id is required")
+	}
+	if p.MediaID == uuid.Nil {
+		return nil, fmt.Errorf("closy ootd media_id is required")
+	}
+	tid := store.TenantIDFromContext(ctx)
+	if tid == uuid.Nil {
+		tid = store.MasterTenantID
+	}
+	var r store.ClosyOOTDReviewData
+	var reportJSON sql.NullString
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, tenant_id, user_id, agent_id, media_id, session_id, occasion, user_note,
+		       overall_judgement, style_label, highlight, main_issue, suggestion, mochi_line,
+		       safety_notes, raw_response, report_json, status, error_message, created_at, updated_at
+		  FROM closy_ootd_reviews
+		 WHERE tenant_id = $1
+		   AND user_id = $2
+		   AND media_id = $3
+		   AND status = $4
+		   AND report_json IS NOT NULL
+		 ORDER BY created_at DESC
+		 LIMIT 1`,
+		tid, userID, p.MediaID, store.ClosyOOTDStatusCompleted,
+	).Scan(
+		&r.ID, &r.TenantID, &r.UserID, &r.AgentID, &r.MediaID, &r.SessionID, &r.Occasion, &r.UserNote,
+		&r.OverallJudgement, &r.StyleLabel, &r.Highlight, &r.MainIssue, &r.Suggestion, &r.MochiLine,
+		&r.SafetyNotes, &r.RawResponse, &reportJSON, &r.Status, &r.ErrorMessage, &r.CreatedAt, &r.UpdatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("find latest closy ootd report: %w", err)
+	}
+	if reportJSON.Valid && strings.TrimSpace(reportJSON.String) != "" {
+		r.ReportJSON = []byte(reportJSON.String)
+	}
+	return &r, nil
+}
+
 func (s *PGClosyOOTDStore) ListClosyOOTDReviews(ctx context.Context, p store.ListClosyOOTDReviewsParams) ([]store.ClosyOOTDReviewData, error) {
 	limit := p.Limit
 	if limit <= 0 || limit > 100 {

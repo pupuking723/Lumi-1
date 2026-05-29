@@ -126,6 +126,7 @@ func TestClosyShareCardsHandlerCreateAndPublicSlug(t *testing.T) {
 	}
 
 	publicReq := httptest.NewRequest(http.MethodGet, "/s/closy/"+cards.created.Slug, nil)
+	publicReq.Header.Set("Accept", "application/json")
 	publicReq.SetPathValue("slug", cards.created.Slug)
 	publicRR := httptest.NewRecorder()
 	h.handlePublicSlug(publicRR, publicReq)
@@ -134,6 +135,21 @@ func TestClosyShareCardsHandlerCreateAndPublicSlug(t *testing.T) {
 	}
 	if cards.created.ViewCount != 1 || !strings.Contains(publicRR.Body.String(), `"view_count":1`) {
 		t.Fatalf("view count card=%d body=%s", cards.created.ViewCount, publicRR.Body.String())
+	}
+
+	redirectReq := httptest.NewRequest(http.MethodGet, "/s/closy/"+cards.created.Slug, nil)
+	redirectReq.Host = "app.test"
+	redirectReq.SetPathValue("slug", cards.created.Slug)
+	redirectRR := httptest.NewRecorder()
+	h.handlePublicSlug(redirectRR, redirectReq)
+	if redirectRR.Code != http.StatusFound {
+		t.Fatalf("redirect status=%d body=%s", redirectRR.Code, redirectRR.Body.String())
+	}
+	if got, want := redirectRR.Header().Get("Location"), "http://app.test/?from=mochi_share&share="+cards.created.Slug; got != want {
+		t.Fatalf("redirect location=%q want %q", got, want)
+	}
+	if cards.created.ViewCount != 2 {
+		t.Fatalf("view count after redirect = %d", cards.created.ViewCount)
 	}
 }
 

@@ -101,6 +101,35 @@ func (f *fakeOOTDStore) ListClosyOOTDReviews(_ context.Context, _ store.ListClos
 	return []store.ClosyOOTDReviewData{*f.created}, nil
 }
 
+func (f *fakeOOTDStore) FindLatestClosyOOTDReport(ctx context.Context, p store.FindLatestClosyOOTDReportParams) (*store.ClosyOOTDReviewData, error) {
+	tid := store.TenantIDFromContext(ctx)
+	if tid == uuid.Nil {
+		tid = store.MasterTenantID
+	}
+	var latest *store.ClosyOOTDReviewData
+	seen := map[uuid.UUID]bool{}
+	consider := func(r *store.ClosyOOTDReviewData) {
+		if r == nil || seen[r.ID] {
+			return
+		}
+		seen[r.ID] = true
+		if r.TenantID != uuid.Nil && r.TenantID != tid {
+			return
+		}
+		if r.UserID != p.UserID || r.MediaID != p.MediaID || r.Status != store.ClosyOOTDStatusCompleted || len(r.ReportJSON) == 0 {
+			return
+		}
+		if latest == nil || r.CreatedAt.After(latest.CreatedAt) {
+			latest = r
+		}
+	}
+	consider(f.created)
+	for _, r := range f.byID {
+		consider(r)
+	}
+	return latest, nil
+}
+
 func TestClosyOOTDHandlerCreateRunsAgentAndStoresReview(t *testing.T) {
 	InitGatewayToken("test-token")
 	t.Cleanup(func() { InitGatewayToken("") })
@@ -198,6 +227,9 @@ func TestClosyOOTDHandlerCreateReportLoadsSkillAndStoresReportJSON(t *testing.T)
 	if !strings.Contains(ag.lastReq.Message, "TEST OOTD SKILL") || !strings.Contains(ag.lastReq.Message, "todayJudgment") {
 		t.Fatalf("prompt = %s", ag.lastReq.Message)
 	}
+	if ag.lastReq.ProviderOptions == nil || ag.lastReq.ProviderOptions[providers.OptResponseMimeType] != "application/json" || ag.lastReq.ProviderOptions[providers.OptResponseSchema] == nil || ag.lastReq.ProviderOptions[providers.OptResponseJSONSchema] == nil {
+		t.Fatalf("missing structured output options: %#v", ag.lastReq.ProviderOptions)
+	}
 	if strings.Contains(ag.lastReq.SessionKey, "fit-report-1") {
 		t.Fatalf("report session should not reuse chat/request session: %q", ag.lastReq.SessionKey)
 	}
@@ -233,12 +265,155 @@ func TestClosyOOTDHandlerCreateReportLoadsSkillAndStoresReportJSON(t *testing.T)
 	}
 }
 
+func TestClosyOOTDHandlerCreateReportReusesExistingCompletedReport(t *testing.T) {
+	InitGatewayToken("test-token")
+	t.Cleanup(func() { InitGatewayToken("") })
+
+	mediaID, assets := testOOTDMediaStore(t)
+	reportID := uuid.New()
+	createdAt := time.Now().UTC().Add(-time.Hour)
+	reviews := &fakeOOTDStore{byID: map[uuid.UUID]*store.ClosyOOTDReviewData{
+		reportID: {
+			BaseModel:  store.BaseModel{ID: reportID, CreatedAt: createdAt, UpdatedAt: createdAt},
+			TenantID:   store.MasterTenantID,
+			UserID:     "user-a",
+			MediaID:    mediaID,
+			Status:     store.ClosyOOTDStatusCompleted,
+			ReportJSON: json.RawMessage(testOOTDReportJSON()),
+		},
+	}}
+	ag := &fakeOOTDAgent{id: uuid.New(), content: testOOTDReportJSON()}
+	router := agent.NewRouter()
+	router.SetResolver(func(context.Context, string) (agent.Agent, error) { return ag, nil })
+	h := NewClosyOOTDHandler(router, assets, reviews, nil, testOOTDSkillsLoader(t))
+
+	body, _ := json.Marshal(map[string]any{"media_id": mediaID.String(), "note": "generate again"})
+	req := httptest.NewRequest(http.MethodPost, "/v1/closy/ootd/reports", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer test-token")
+	req.Header.Set("X-GoClaw-User-Id", "user-a")
+	rr := httptest.NewRecorder()
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if len(ag.requests) != 0 {
+		t.Fatalf("expected cached report without model call, got %d requests", len(ag.requests))
+	}
+	if reviews.created != nil {
+		t.Fatalf("expected no new review, created = %#v", reviews.created)
+	}
+	var resp struct {
+		ID            string `json:"id"`
+		MediaID       string `json:"mediaId"`
+		TodayJudgment struct {
+			Title string  `json:"title"`
+			Score float64 `json:"score"`
+		} `json:"todayJudgment"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v body=%s", err, rr.Body.String())
+	}
+	if resp.ID != reportID.String() || resp.MediaID != mediaID.String() || resp.TodayJudgment.Title != "城市休闲极简主义" || resp.TodayJudgment.Score != 5.5 {
+		t.Fatalf("resp = %#v", resp)
+	}
+}
+
+func TestClosyOOTDHandlerCreateReportDoesNotReuseFailedReport(t *testing.T) {
+	InitGatewayToken("test-token")
+	t.Cleanup(func() { InitGatewayToken("") })
+
+	mediaID, assets := testOOTDMediaStore(t)
+	failedID := uuid.New()
+	createdAt := time.Now().UTC().Add(-time.Hour)
+	reviews := &fakeOOTDStore{byID: map[uuid.UUID]*store.ClosyOOTDReviewData{
+		failedID: {
+			BaseModel:  store.BaseModel{ID: failedID, CreatedAt: createdAt, UpdatedAt: createdAt},
+			TenantID:   store.MasterTenantID,
+			UserID:     "user-a",
+			MediaID:    mediaID,
+			Status:     store.ClosyOOTDStatusFailed,
+			ReportJSON: json.RawMessage(testOOTDReportJSON()),
+		},
+	}}
+	ag := &fakeOOTDAgent{id: uuid.New(), content: testOOTDReportJSON()}
+	router := agent.NewRouter()
+	router.SetResolver(func(context.Context, string) (agent.Agent, error) { return ag, nil })
+	h := NewClosyOOTDHandler(router, assets, reviews, nil, testOOTDSkillsLoader(t))
+
+	body, _ := json.Marshal(map[string]any{"media_id": mediaID.String()})
+	req := httptest.NewRequest(http.MethodPost, "/v1/closy/ootd/reports", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer test-token")
+	req.Header.Set("X-GoClaw-User-Id", "user-a")
+	rr := httptest.NewRecorder()
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if len(ag.requests) != 1 {
+		t.Fatalf("expected failed report to regenerate, got %d requests", len(ag.requests))
+	}
+	if reviews.created == nil || reviews.created.ID == failedID {
+		t.Fatalf("created = %#v", reviews.created)
+	}
+}
+
+func TestClosyOOTDHandlerCreateReportDoesNotReuseInvalidStoredReportJSON(t *testing.T) {
+	InitGatewayToken("test-token")
+	t.Cleanup(func() { InitGatewayToken("") })
+
+	mediaID, assets := testOOTDMediaStore(t)
+	invalidID := uuid.New()
+	createdAt := time.Now().UTC().Add(-time.Hour)
+	reviews := &fakeOOTDStore{byID: map[uuid.UUID]*store.ClosyOOTDReviewData{
+		invalidID: {
+			BaseModel:  store.BaseModel{ID: invalidID, CreatedAt: createdAt, UpdatedAt: createdAt},
+			TenantID:   store.MasterTenantID,
+			UserID:     "user-a",
+			MediaID:    mediaID,
+			Status:     store.ClosyOOTDStatusCompleted,
+			ReportJSON: json.RawMessage(`{"todayJudgment":{"title":"missing score and label"}}`),
+		},
+	}}
+	ag := &fakeOOTDAgent{id: uuid.New(), content: testOOTDReportJSON()}
+	router := agent.NewRouter()
+	router.SetResolver(func(context.Context, string) (agent.Agent, error) { return ag, nil })
+	h := NewClosyOOTDHandler(router, assets, reviews, nil, testOOTDSkillsLoader(t))
+
+	body, _ := json.Marshal(map[string]any{"media_id": mediaID.String()})
+	req := httptest.NewRequest(http.MethodPost, "/v1/closy/ootd/reports", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer test-token")
+	req.Header.Set("X-GoClaw-User-Id", "user-a")
+	rr := httptest.NewRecorder()
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if len(ag.requests) != 1 {
+		t.Fatalf("expected invalid cached report to regenerate, got %d requests", len(ag.requests))
+	}
+	if reviews.created == nil || reviews.created.ID == invalidID {
+		t.Fatalf("created = %#v", reviews.created)
+	}
+}
+
 func TestClosyOOTDHandlerCreateReportRepairsInvalidModelOutput(t *testing.T) {
 	InitGatewayToken("test-token")
 	t.Cleanup(func() { InitGatewayToken("") })
 
 	mediaID, assets := testOOTDMediaStore(t)
-	ag := &fakeOOTDAgent{id: uuid.New(), contents: []string{`{"todayJudgment":{"title":"x","score":9,"label":"ok","summary":"ok"}}`, testOOTDReportJSON()}}
+	ag := &fakeOOTDAgent{id: uuid.New(), contents: []string{`{"todayJudgment":{"title":"x","label":"ok"}}`, testOOTDReportJSON()}}
 	router := agent.NewRouter()
 	router.SetResolver(func(context.Context, string) (agent.Agent, error) { return ag, nil })
 	h := NewClosyOOTDHandler(router, assets, &fakeOOTDStore{}, nil, testOOTDSkillsLoader(t))
@@ -286,7 +461,7 @@ func TestClosyOOTDHandlerCreateReportRejectsUnsafeOutput(t *testing.T) {
 	}
 }
 
-func TestClosyOOTDHandlerCreateReportRejectsInvalidAfterRepair(t *testing.T) {
+func TestClosyOOTDHandlerCreateReportFallsBackAfterInvalidRepair(t *testing.T) {
 	InitGatewayToken("test-token")
 	t.Cleanup(func() { InitGatewayToken("") })
 
@@ -295,7 +470,8 @@ func TestClosyOOTDHandlerCreateReportRejectsInvalidAfterRepair(t *testing.T) {
 	ag := &fakeOOTDAgent{id: uuid.New(), contents: []string{invalid, invalid}}
 	router := agent.NewRouter()
 	router.SetResolver(func(context.Context, string) (agent.Agent, error) { return ag, nil })
-	h := NewClosyOOTDHandler(router, assets, &fakeOOTDStore{}, nil, testOOTDSkillsLoader(t))
+	reviews := &fakeOOTDStore{}
+	h := NewClosyOOTDHandler(router, assets, reviews, nil, testOOTDSkillsLoader(t))
 
 	body, _ := json.Marshal(map[string]any{"media_id": mediaID.String()})
 	req := httptest.NewRequest(http.MethodPost, "/v1/closy/ootd/reports", bytes.NewReader(body))
@@ -307,11 +483,17 @@ func TestClosyOOTDHandlerCreateReportRejectsInvalidAfterRepair(t *testing.T) {
 	h.RegisterRoutes(mux)
 	mux.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusUnprocessableEntity || !strings.Contains(rr.Body.String(), "model_output_invalid") {
+	if rr.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
 	}
 	if len(ag.requests) != 2 {
 		t.Fatalf("requests = %#v", ag.requests)
+	}
+	if reviews.created == nil || len(reviews.created.ReportJSON) == 0 {
+		t.Fatalf("created = %#v", reviews.created)
+	}
+	if !strings.Contains(rr.Body.String(), `"title":"Needs another pass"`) || !strings.Contains(rr.Body.String(), `"label":"Retry"`) {
+		t.Fatalf("body=%s", rr.Body.String())
 	}
 }
 

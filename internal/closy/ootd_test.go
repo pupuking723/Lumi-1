@@ -79,12 +79,9 @@ func TestParseOOTDReportRejectsInvalidShape(t *testing.T) {
 		name string
 		raw  string
 	}{
-		{name: "missing required fields", raw: `{"todayJudgment":{"title":"x","score":8,"label":"ok","summary":"ok"}}`},
+		{name: "missing core title", raw: `{"todayJudgment":{"score":8,"label":"ok"}}`},
+		{name: "missing core label", raw: `{"todayJudgment":{"title":"x","score":8}}`},
 		{name: "score out of range", raw: strings.Replace(validOOTDReportJSON(), `"score":5.5`, `"score":11`, 1)},
-		{name: "invalid palette hex", raw: strings.Replace(validOOTDReportJSON(), `"#1A1A1A"`, `"#111"`, 1)},
-		{name: "too many highlights", raw: strings.Replace(validOOTDReportJSON(), `"highlights":["比例干净","色彩稳定"]`, `"highlights":["a","b","c","d"]`, 1)},
-		{name: "too many suggestions", raw: strings.Replace(validOOTDReportJSON(), `"suggestions":[{"title":"补一个焦点","body":"换一只更利落的包。"}]`, `"suggestions":[{"title":"a","body":"a"},{"title":"b","body":"b"},{"title":"c","body":"c"},{"title":"d","body":"d"}]`, 1)},
-		{name: "too many share advice", raw: strings.Replace(validOOTDReportJSON(), `"advice":["把鞋换浅","补金属小配件"]`, `"advice":["a","b","c"]`, 1)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -92,6 +89,42 @@ func TestParseOOTDReportRejectsInvalidShape(t *testing.T) {
 				t.Fatalf("expected parse error")
 			}
 		})
+	}
+}
+
+func TestParseOOTDReportAcceptsCoreOnlyReport(t *testing.T) {
+	report, err := ParseOOTDReport(`{"todayJudgment":{"title":"Clean enough","score":7,"label":"Wearable"}}`)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if report.TodayJudgment.Title != "Clean enough" || report.TodayJudgment.Score != 7 || report.TodayJudgment.Label != "Wearable" {
+		t.Fatalf("todayJudgment = %#v", report.TodayJudgment)
+	}
+	if report.OverallStyle != "" || len(report.Highlights) != 0 || len(report.Suggestions) != 0 || len(report.Palette) != 0 {
+		t.Fatalf("optional fields should stay empty: %#v", report)
+	}
+}
+
+func TestParseOOTDReportNormalizesUIOverages(t *testing.T) {
+	raw := strings.Replace(validOOTDReportJSON(), `"title":"城市休闲极简主义"`, `"title":"这是一条明显超过三十二个字符但仍然适合被前端截断展示的今日判断标题"`, 1)
+	raw = strings.Replace(raw, `"highlights":["比例干净","色彩稳定"]`, `"highlights":["a","b","c","d"]`, 1)
+	raw = strings.Replace(raw, `"suggestions":[{"title":"补一个焦点","body":"换一只更利落的包。"}]`, `"suggestions":[{"title":"a","body":"a"},{"title":"b","body":"b"},{"title":"c","body":"c"},{"title":"d","body":"d"}]`, 1)
+	raw = strings.Replace(raw, `"advice":["把鞋换浅","补金属小配件"]`, `"advice":["a","b","c"]`, 1)
+	raw = strings.Replace(raw, `{"name":"Black","hex":"#1A1A1A"},{"name":"Bone","hex":"#EAE9E1"}`, `{"name":"Bad","hex":"#111"},{"name":"","hex":"#222222"},{"name":"Bone","hex":"#EAE9E1"}`, 1)
+	raw = strings.Replace(raw, `"mochiLine":"底子不差，但现在少一口气。"`, `"mochiLine":"这是一句特别长但仍然安全的 Mochi 点评，应该被后端截断成适合 UI 展示的长度，而不是让整份报告直接失败。这里继续补足更多文字确保超过限制。"`, 1)
+
+	report, err := ParseOOTDReport(raw)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(report.Highlights) != 3 || len(report.Suggestions) != 3 || len(report.ShareCard.Advice) != 2 {
+		t.Fatalf("report was not normalized: highlights=%d suggestions=%d advice=%d", len(report.Highlights), len(report.Suggestions), len(report.ShareCard.Advice))
+	}
+	if len(report.Palette) != 1 || report.Palette[0].Hex != "#EAE9E1" {
+		t.Fatalf("invalid palette colors were not filtered: %#v", report.Palette)
+	}
+	if len([]rune(report.TodayJudgment.Title)) > 32 || len([]rune(report.MochiLine)) > 80 {
+		t.Fatalf("short fields were not truncated: title=%q mochiLine=%q", report.TodayJudgment.Title, report.MochiLine)
 	}
 }
 
@@ -116,6 +149,24 @@ func TestParseOOTDReportRejectsFalseImageUnavailableOutput(t *testing.T) {
 	_, err := ParseOOTDReport(raw)
 	if !errors.Is(err, ErrInvalidOOTDReport) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestFallbackOOTDReportIsValidAndLanguageAware(t *testing.T) {
+	en := FallbackOOTDReport(ErrInvalidOOTDReport, "en")
+	if err := ValidateOOTDReport(en); err != nil {
+		t.Fatalf("english fallback invalid: %v %#v", err, en)
+	}
+	if en.TodayJudgment.Title != "Needs another pass" || en.TodayJudgment.Label != "Retry" {
+		t.Fatalf("english fallback = %#v", en.TodayJudgment)
+	}
+
+	zh := FallbackOOTDReport(ErrInvalidOOTDReport, "zh")
+	if err := ValidateOOTDReport(zh); err != nil {
+		t.Fatalf("chinese fallback invalid: %v %#v", err, zh)
+	}
+	if zh.TodayJudgment.Title != "需要重新生成" || zh.TodayJudgment.Label != "重试" {
+		t.Fatalf("chinese fallback = %#v", zh.TodayJudgment)
 	}
 }
 

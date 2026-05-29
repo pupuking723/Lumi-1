@@ -614,6 +614,7 @@ type RunRequest struct {
 	MaxIterations     int                // per-request override (0 = use agent default, must be lower)
 	ModelOverride     string             // per-request model override (heartbeat uses cheaper model)
 	ProviderOverride  providers.Provider // per-request provider override (heartbeat uses different provider)
+	ProviderOptions   map[string]any     // per-request provider options, merged into ChatRequest.Options
 	LightContext      bool               // skip loading context files (only inject ExtraSystemPrompt)
 
 	// Run classification

@@ -216,6 +216,23 @@ func (p *OpenAIProvider) buildRequestBody(model string, req ChatRequest, stream 
 			body[OptThinkingBudget] = v
 		}
 	}
+	if schema, ok := req.Options[OptResponseJSONSchema].(map[string]any); ok && len(schema) > 0 {
+		name, _ := req.Options[OptResponseJSONSchemaName].(string)
+		name = strings.TrimSpace(name)
+		if name == "" {
+			name = "structured_response"
+		}
+		body["response_format"] = map[string]any{
+			"type": "json_schema",
+			"json_schema": map[string]any{
+				"name":   name,
+				"strict": true,
+				"schema": schema,
+			},
+		}
+	} else if mime, ok := req.Options[OptResponseMimeType].(string); ok && strings.EqualFold(strings.TrimSpace(mime), "application/json") {
+		body["response_format"] = map[string]any{"type": "json_object"}
+	}
 
 	return body
 }

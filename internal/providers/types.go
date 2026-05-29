@@ -24,6 +24,13 @@ const (
 	OptFastMode             = "fast_mode"
 	OptPromptCacheKey       = "prompt_cache_key"
 	OptPromptCacheRetention = "prompt_cache_retention"
+
+	// Structured response options. Providers that support native schema output
+	// may use these to constrain model output for one request.
+	OptResponseMimeType       = "response_mime_type"
+	OptResponseSchema         = "response_schema"
+	OptResponseJSONSchema     = "response_json_schema"
+	OptResponseJSONSchemaName = "response_json_schema_name"
 )
 
 // TokenSource provides an OAuth access token (with auto-refresh).

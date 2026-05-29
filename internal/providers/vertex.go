@@ -372,9 +372,11 @@ type vertexGeminiBlob struct {
 }
 
 type vertexGeminiGenerationConfig struct {
-	Temperature     *float64 `json:"temperature,omitempty"`
-	MaxOutputTokens int      `json:"maxOutputTokens,omitempty"`
-	ThinkingConfig  *struct {
+	Temperature      *float64       `json:"temperature,omitempty"`
+	MaxOutputTokens  int            `json:"maxOutputTokens,omitempty"`
+	ResponseMimeType string         `json:"responseMimeType,omitempty"`
+	ResponseSchema   map[string]any `json:"responseSchema,omitempty"`
+	ThinkingConfig   *struct {
 		ThinkingBudget int `json:"thinkingBudget,omitempty"`
 	} `json:"thinkingConfig,omitempty"`
 }
@@ -480,6 +482,12 @@ func vertexRequestFromChat(req ChatRequest) vertexGeminiRequest {
 					ThinkingBudget int `json:"thinkingBudget,omitempty"`
 				}{ThinkingBudget: budget}
 			}
+		}
+		if v, ok := req.Options[OptResponseMimeType].(string); ok {
+			out.GenerationConfig.ResponseMimeType = strings.TrimSpace(v)
+		}
+		if v, ok := req.Options[OptResponseSchema].(map[string]any); ok && len(v) > 0 {
+			out.GenerationConfig.ResponseSchema = v
 		}
 	}
 	return out
